@@ -4,8 +4,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { Profile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -16,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Search, Users, MessageCircle } from 'lucide-react';
+import { Search, Users, MessageCircle, Loader2 } from 'lucide-react';
 
 interface NewChatDialogProps {
   open: boolean;
@@ -28,11 +26,8 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<Profile[]>([]);
-  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
-  const [groupName, setGroupName] = useState('');
-  const [isGroup, setIsGroup] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [creatingUserId, setCreatingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -64,33 +59,15 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
     setLoading(false);
   };
 
-  const toggleUser = (userId: string) => {
-    setSelectedUsers(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
-
-  const handleCreate = async () => {
-    if (selectedUsers.length === 0) return;
-
-    setCreating(true);
-    await onCreate(selectedUsers, isGroup ? groupName : undefined, isGroup || selectedUsers.length > 1);
-    setCreating(false);
-    
-    // Reset state
-    setSelectedUsers([]);
-    setGroupName('');
-    setIsGroup(false);
+  const handleDirectChat = async (userId: string) => {
+    setCreatingUserId(userId);
+    await onCreate([userId], undefined, false);
+    setCreatingUserId(null);
     setSearchQuery('');
     onClose();
   };
 
   const handleClose = () => {
-    setSelectedUsers([]);
-    setGroupName('');
-    setIsGroup(false);
     setSearchQuery('');
     onClose();
   };
@@ -122,55 +99,6 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
             />
           </div>
 
-          {/* Group option */}
-          {selectedUsers.length > 1 && (
-            <div className="space-y-3 p-3 rounded-xl bg-muted/50">
-              <div className="flex items-center gap-2">
-                <Checkbox 
-                  id="isGroup" 
-                  checked={isGroup}
-                  onCheckedChange={(checked) => setIsGroup(checked as boolean)}
-                />
-                <Label htmlFor="isGroup" className="flex items-center gap-2 cursor-pointer">
-                  <Users className="w-4 h-4" />
-                  Tạo nhóm chat
-                </Label>
-              </div>
-              
-              {isGroup && (
-                <Input
-                  placeholder="Tên nhóm..."
-                  value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  className="h-10"
-                />
-              )}
-            </div>
-          )}
-
-          {/* Selected users */}
-          {selectedUsers.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {selectedUsers.map(userId => {
-                const selectedUser = users.find(u => u.id === userId);
-                return (
-                  <div 
-                    key={userId}
-                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-sm"
-                  >
-                    <span>{selectedUser?.display_name || selectedUser?.username}</span>
-                    <button 
-                      onClick={() => toggleUser(userId)}
-                      className="w-4 h-4 rounded-full hover:bg-primary/20 flex items-center justify-center"
-                    >
-                      ×
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           {/* User list */}
           <ScrollArea className="h-64">
             {loading ? (
@@ -187,11 +115,10 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
                 {users.map((userItem) => (
                   <button
                     key={userItem.id}
-                    onClick={() => toggleUser(userItem.id)}
-                    className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all ${
-                      selectedUsers.includes(userItem.id)
-                        ? 'bg-primary/10 ring-2 ring-primary'
-                        : 'hover:bg-muted'
+                    onClick={() => handleDirectChat(userItem.id)}
+                    disabled={creatingUserId !== null}
+                    className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all hover:bg-muted ${
+                      creatingUserId !== null ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
                     <Avatar className="w-10 h-10">
@@ -204,10 +131,8 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
                       <p className="font-medium">{userItem.display_name}</p>
                       <p className="text-sm text-muted-foreground">@{userItem.username}</p>
                     </div>
-                    {selectedUsers.includes(userItem.id) && (
-                      <div className="ml-auto w-5 h-5 rounded-full gradient-primary flex items-center justify-center">
-                        <span className="text-white text-xs">✓</span>
-                      </div>
+                    {creatingUserId === userItem.id && (
+                      <Loader2 className="ml-auto w-5 h-5 animate-spin text-primary" />
                     )}
                   </button>
                 ))}
@@ -217,15 +142,8 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} className="flex-1">
+          <Button variant="outline" onClick={handleClose} className="w-full">
             Hủy
-          </Button>
-          <Button 
-            onClick={handleCreate}
-            disabled={selectedUsers.length === 0 || creating}
-            className="flex-1 gradient-primary btn-3d"
-          >
-            {creating ? 'Đang tạo...' : 'Bắt đầu chat'}
           </Button>
         </DialogFooter>
       </DialogContent>
