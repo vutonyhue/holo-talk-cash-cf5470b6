@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
+import { toast } from 'sonner';
 import { 
   Phone, 
   Video, 
@@ -16,8 +17,7 @@ import {
   Smile, 
   Paperclip,
   Coins,
-  Image,
-  Mic,
+  Loader2,
   ArrowLeft
 } from 'lucide-react';
 import {
@@ -36,11 +36,13 @@ interface ChatWindowProps {
 
 export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
   const { profile } = useAuth();
-  const { messages, loading, sendMessage, sendCryptoMessage } = useMessages(conversation.id);
+  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage } = useMessages(conversation.id);
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -90,6 +92,29 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
     if (!otherMember) return;
     await sendCryptoMessage(otherMember.user_id, amount, currency);
     setShowCryptoDialog(false);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File quá lớn. Giới hạn 10MB');
+      return;
+    }
+
+    setUploading(true);
+    const { error } = await sendImageMessage(file);
+    setUploading(false);
+
+    if (error) {
+      toast.error('Không thể gửi file');
+      console.error('Upload error:', error);
+    }
+
+    // Reset input
+    e.target.value = '';
   };
 
   return (
@@ -187,8 +212,25 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
             <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground hover:text-primary">
               <Smile className="w-5 h-5" />
             </Button>
-            <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground hover:text-primary">
-              <Paperclip className="w-5 h-5" />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar"
+              className="hidden"
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="rounded-xl text-muted-foreground hover:text-primary"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Paperclip className="w-5 h-5" />
+              )}
             </Button>
             <Button 
               variant="ghost" 

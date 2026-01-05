@@ -151,11 +151,45 @@ export function useMessages(conversationId: string | null) {
     return { data: messageData, error: null };
   };
 
+  const sendImageMessage = async (file: File) => {
+    if (!user || !conversationId) return { error: new Error('Not ready') };
+
+    // Create file path: user_id/conversation_id/timestamp_filename
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${user.id}/${conversationId}/${Date.now()}.${fileExt}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(fileName, file);
+
+    if (uploadError) return { error: uploadError };
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('chat-attachments')
+      .getPublicUrl(fileName);
+
+    // Determine message type
+    const isImage = file.type.startsWith('image/');
+    const messageType = isImage ? 'image' : 'file';
+    const content = isImage ? 'Đã gửi hình ảnh' : `Đã gửi file: ${file.name}`;
+
+    // Send message
+    return sendMessage(content, messageType, {
+      file_url: publicUrl,
+      file_name: file.name,
+      file_size: file.size,
+      file_type: file.type,
+    });
+  };
+
   return {
     messages,
     loading,
     sendMessage,
     sendCryptoMessage,
+    sendImageMessage,
     fetchMessages,
   };
 }
