@@ -22,20 +22,26 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   const renderContent = () => {
     // Image message
     if (message.message_type === 'image') {
-      const { file_url, file_name } = message.metadata as { 
+      const { file_url, file_name, caption } = message.metadata as { 
         file_url: string; 
-        file_name: string; 
+        file_name: string;
+        caption?: string;
       };
       return (
         <div className={`rounded-2xl overflow-hidden max-w-xs ${
           isMine ? 'rounded-br-md' : 'rounded-bl-md'
-        }`}>
+        } ${caption ? (isMine ? 'bg-primary' : 'bg-card shadow-card') : ''}`}>
           <img 
             src={file_url} 
             alt={file_name}
             className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
             onClick={() => window.open(file_url, '_blank')}
           />
+          {caption && (
+            <p className={`px-3 py-2 text-sm ${isMine ? 'text-primary-foreground' : ''}`}>
+              {caption}
+            </p>
+          )}
         </div>
       );
     }

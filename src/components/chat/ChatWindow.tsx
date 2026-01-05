@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
+import ImagePreviewDialog from './ImagePreviewDialog';
 import { toast } from 'sonner';
 import { 
   Phone, 
@@ -40,6 +41,8 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,23 +101,53 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input immediately
+    e.target.value = '';
+
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       toast.error('File quá lớn. Giới hạn 10MB');
       return;
     }
 
+    // If image, show preview dialog
+    if (file.type.startsWith('image/')) {
+      setPreviewFile(file);
+      setShowPreview(true);
+    } else {
+      // For other files, upload directly
+      setUploading(true);
+      const { error } = await sendImageMessage(file);
+      setUploading(false);
+
+      if (error) {
+        toast.error('Không thể gửi file');
+        console.error('Upload error:', error);
+      }
+    }
+  };
+
+  const handleSendWithCaption = async (caption: string) => {
+    if (!previewFile) return;
+
     setUploading(true);
-    const { error } = await sendImageMessage(file);
+    const { error } = await sendImageMessage(previewFile, caption);
     setUploading(false);
 
     if (error) {
-      toast.error('Không thể gửi file');
+      toast.error('Không thể gửi ảnh');
       console.error('Upload error:', error);
+    } else {
+      setShowPreview(false);
+      setPreviewFile(null);
     }
+  };
 
-    // Reset input
-    e.target.value = '';
+  const handleClosePreview = () => {
+    if (!uploading) {
+      setShowPreview(false);
+      setPreviewFile(null);
+    }
   };
 
   return (
@@ -274,6 +307,15 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
         onClose={() => setShowCryptoDialog(false)}
         onSend={handleSendCrypto}
         recipientName={chatName || ''}
+      />
+
+      {/* Image Preview Dialog */}
+      <ImagePreviewDialog
+        open={showPreview}
+        onClose={handleClosePreview}
+        file={previewFile}
+        onSend={handleSendWithCaption}
+        uploading={uploading}
       />
     </div>
   );

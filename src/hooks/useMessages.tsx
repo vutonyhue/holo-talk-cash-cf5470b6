@@ -151,7 +151,7 @@ export function useMessages(conversationId: string | null) {
     return { data: messageData, error: null };
   };
 
-  const sendImageMessage = async (file: File) => {
+  const sendImageMessage = async (file: File, caption?: string) => {
     if (!user || !conversationId) return { error: new Error('Not ready') };
 
     // Create file path: user_id/conversation_id/timestamp_filename
@@ -173,7 +173,7 @@ export function useMessages(conversationId: string | null) {
     // Determine message type
     const isImage = file.type.startsWith('image/');
     const messageType = isImage ? 'image' : 'file';
-    const content = isImage ? 'Đã gửi hình ảnh' : `Đã gửi file: ${file.name}`;
+    const content = caption || (isImage ? 'Đã gửi hình ảnh' : `Đã gửi file: ${file.name}`);
 
     // Send message
     return sendMessage(content, messageType, {
@@ -181,6 +181,7 @@ export function useMessages(conversationId: string | null) {
       file_name: file.name,
       file_size: file.size,
       file_type: file.type,
+      caption: caption || null,
     });
   };
 
