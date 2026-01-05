@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Conversation, Message } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
 import ImagePreviewDialog from './ImagePreviewDialog';
+import ImageLightbox, { LightboxImage } from './ImageLightbox';
 import { toast } from 'sonner';
 import { 
   Phone, 
@@ -43,9 +44,27 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
   const [uploading, setUploading] = useState(false);
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Extract all images from messages for lightbox navigation
+  const allImages = useMemo<LightboxImage[]>(() => {
+    return messages
+      .filter(m => m.message_type === 'image')
+      .map(m => {
+        const metadata = m.metadata as { file_url: string; file_name: string };
+        return { src: metadata.file_url, alt: metadata.file_name };
+      });
+  }, [messages]);
+
+  const handleImageClick = (src: string, alt: string) => {
+    const index = allImages.findIndex(img => img.src === src);
+    if (index !== -1) {
+      setLightboxIndex(index);
+    }
+  };
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -232,7 +251,11 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
         ) : (
           <div className="space-y-1">
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble 
+                key={message.id} 
+                message={message} 
+                onImageClick={handleImageClick}
+              />
             ))}
           </div>
         )}
@@ -317,6 +340,16 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
         onSend={handleSendWithCaption}
         uploading={uploading}
       />
+
+      {/* Image Lightbox with swipe */}
+      {lightboxIndex !== null && (
+        <ImageLightbox
+          images={allImages}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onIndexChange={setLightboxIndex}
+        />
+      )}
     </div>
   );
 }
