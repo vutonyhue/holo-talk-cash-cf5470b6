@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Coins, Check, CheckCheck } from 'lucide-react';
+import { Coins, CheckCheck, FileIcon, Download } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
@@ -13,7 +13,67 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   const renderContent = () => {
+    // Image message
+    if (message.message_type === 'image') {
+      const { file_url, file_name } = message.metadata as { 
+        file_url: string; 
+        file_name: string; 
+      };
+      return (
+        <div className={`rounded-2xl overflow-hidden max-w-xs ${
+          isMine ? 'rounded-br-md' : 'rounded-bl-md'
+        }`}>
+          <img 
+            src={file_url} 
+            alt={file_name}
+            className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={() => window.open(file_url, '_blank')}
+          />
+        </div>
+      );
+    }
+
+    // File message
+    if (message.message_type === 'file') {
+      const { file_url, file_name, file_size } = message.metadata as {
+        file_url: string;
+        file_name: string;
+        file_size: number;
+      };
+      
+      return (
+        <a 
+          href={file_url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className={`flex items-center gap-3 px-4 py-3 rounded-2xl hover:opacity-90 transition-opacity ${
+            isMine 
+              ? 'gradient-primary text-primary-foreground rounded-br-md' 
+              : 'bg-card shadow-card rounded-bl-md'
+          }`}
+        >
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+            isMine ? 'bg-white/20' : 'bg-muted'
+          }`}>
+            <FileIcon className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium truncate text-sm">{file_name}</p>
+            <p className="text-xs opacity-70">{formatFileSize(file_size)}</p>
+          </div>
+          <Download className="w-5 h-5 opacity-70" />
+        </a>
+      );
+    }
+
+    // Crypto message
     if (message.message_type === 'crypto') {
       const { amount, currency } = message.metadata as { amount: number; currency: string };
       return (
@@ -35,6 +95,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
       );
     }
 
+    // Default text message
     return (
       <div className={`px-4 py-2.5 rounded-2xl max-w-xs md:max-w-md lg:max-w-lg ${
         isMine 
