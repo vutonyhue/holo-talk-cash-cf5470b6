@@ -17,7 +17,8 @@ import {
   Paperclip,
   Coins,
   Image,
-  Mic
+  Mic,
+  ArrowLeft
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -30,9 +31,10 @@ interface ChatWindowProps {
   conversation: Conversation;
   onVideoCall: () => void;
   onVoiceCall: () => void;
+  onBack?: () => void;
 }
 
-export default function ChatWindow({ conversation, onVideoCall, onVoiceCall }: ChatWindowProps) {
+export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
   const { profile } = useAuth();
   const { messages, loading, sendMessage, sendCryptoMessage } = useMessages(conversation.id);
   const [newMessage, setNewMessage] = useState('');
@@ -79,6 +81,16 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall }: C
       {/* Header */}
       <div className="h-16 px-4 flex items-center justify-between border-b bg-card/50 backdrop-blur-sm">
         <div className="flex items-center gap-3">
+          {onBack && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="rounded-xl"
+              onClick={onBack}
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          )}
           <Avatar className="w-10 h-10 ring-2 ring-offset-2 ring-primary/20">
             <AvatarImage src={chatAvatar || undefined} />
             <AvatarFallback className={`font-semibold ${
