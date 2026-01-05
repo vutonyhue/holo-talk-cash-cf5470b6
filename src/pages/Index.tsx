@@ -30,8 +30,8 @@ const Index = () => {
           Nhắn tin, gọi video & gửi crypto - tất cả trong một ứng dụng siêu vui! 🎉
         </p>
 
-        {/* CTA Buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-16">
+        {/* CTA Button */}
+        <div className="mb-16">
           <Link to="/auth">
             <Button 
               size="lg" 
@@ -39,16 +39,6 @@ const Index = () => {
             >
               <Sparkles className="mr-2 h-5 w-5" />
               Bắt đầu ngay
-            </Button>
-          </Link>
-          <Link to="/chat">
-            <Button 
-              size="lg" 
-              variant="outline"
-              className="border-2 border-white text-white hover:bg-white hover:text-fun-purple font-bold text-lg px-8 py-6 rounded-2xl transform hover:scale-105 transition-all duration-300"
-            >
-              <MessageCircle className="mr-2 h-5 w-5" />
-              Vào Chat
             </Button>
           </Link>
         </div>
