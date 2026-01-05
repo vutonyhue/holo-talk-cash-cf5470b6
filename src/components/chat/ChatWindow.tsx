@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
@@ -40,6 +40,15 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  };
 
   const otherMember = conversation.members?.find(m => m.user_id !== profile?.id);
   const chatName = conversation.is_group 
@@ -60,14 +69,21 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
 
     const content = newMessage;
     setNewMessage('');
+    
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    
     await sendMessage(content);
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
+    // Shift+Enter sẽ tự động xuống dòng
   };
 
   const handleSendCrypto = async (amount: number, currency: string) => {
@@ -186,12 +202,17 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
           </div>
 
           <div className="flex-1 relative">
-            <Input
+            <Textarea
+              ref={textareaRef}
               placeholder="Nhập tin nhắn..."
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              className="h-11 pr-12 rounded-xl bg-muted/50 border-0 focus-visible:ring-primary"
+              onChange={(e) => {
+                setNewMessage(e.target.value);
+                adjustTextareaHeight();
+              }}
+              onKeyDown={handleKeyDown}
+              rows={1}
+              className="min-h-[44px] max-h-[120px] py-3 pr-12 resize-none rounded-xl bg-muted/50 border-0 focus-visible:ring-primary overflow-y-auto"
             />
             <Button 
               size="icon" 
