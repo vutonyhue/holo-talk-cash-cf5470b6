@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Conversation, Profile } from '@/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -29,6 +30,7 @@ export default function ConversationList({
   onSelect,
   onNewChat,
 }: ConversationListProps) {
+  const navigate = useNavigate();
   const { profile, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -84,7 +86,7 @@ export default function ConversationList({
                 <p className="text-sm text-muted-foreground">@{profile?.username}</p>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/profile')}>
                 <User className="mr-2 h-4 w-4" />
                 Hồ sơ
               </DropdownMenuItem>
