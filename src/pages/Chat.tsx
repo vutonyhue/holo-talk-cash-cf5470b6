@@ -2,17 +2,20 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Conversation } from '@/types';
 import ConversationList from '@/components/chat/ConversationList';
 import ChatWindow from '@/components/chat/ChatWindow';
 import NewChatDialog from '@/components/chat/NewChatDialog';
 import VideoCallModal from '@/components/chat/VideoCallModal';
 import { MessageCircle, Sparkles } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function Chat() {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading } = useAuth();
   const { conversations, loading: convsLoading, createConversation } = useConversations();
+  const isMobile = useIsMobile();
   
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [showNewChat, setShowNewChat] = useState(false);
@@ -78,7 +81,12 @@ export default function Chat() {
   return (
     <div className="h-screen flex overflow-hidden">
       {/* Sidebar - Conversation List */}
-      <div className="w-80 lg:w-96 border-r flex-shrink-0">
+      <div className={cn(
+        "border-r flex-shrink-0 transition-all duration-300",
+        isMobile 
+          ? (selectedConversation ? "hidden" : "w-full") 
+          : "w-80 lg:w-96"
+      )}>
         <ConversationList
           conversations={conversations}
           selectedId={selectedConversation?.id || null}
@@ -88,12 +96,16 @@ export default function Chat() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className={cn(
+        "flex-1 flex flex-col",
+        isMobile && !selectedConversation && "hidden"
+      )}>
         {selectedConversation ? (
           <ChatWindow
             conversation={selectedConversation}
             onVideoCall={handleVideoCall}
             onVoiceCall={handleVoiceCall}
+            onBack={isMobile ? () => setSelectedConversation(null) : undefined}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gradient-chat">
