@@ -17,10 +17,15 @@ export default function Chat() {
   const { conversations, loading: convsLoading, createConversation } = useConversations();
   const isMobile = useIsMobile();
   
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [showNewChat, setShowNewChat] = useState(false);
   const [showVideoCall, setShowVideoCall] = useState(false);
   const [callType, setCallType] = useState<'video' | 'voice'>('video');
+
+  // Derive selectedConversation from ID
+  const selectedConversation = selectedConversationId 
+    ? conversations.find(c => c.id === selectedConversationId) || null 
+    : null;
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -31,10 +36,7 @@ export default function Chat() {
   const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean) => {
     const result = await createConversation(memberIds, name, isGroup);
     if (result.data) {
-      const newConv = conversations.find(c => c.id === result.data.id);
-      if (newConv) {
-        setSelectedConversation(newConv);
-      }
+      setSelectedConversationId(result.data.id);
     }
   };
 
@@ -92,8 +94,8 @@ export default function Chat() {
       )}>
         <ConversationList
           conversations={conversations}
-          selectedId={selectedConversation?.id || null}
-          onSelect={setSelectedConversation}
+          selectedId={selectedConversationId}
+          onSelect={(conv) => setSelectedConversationId(conv.id)}
           onNewChat={() => setShowNewChat(true)}
         />
       </div>
@@ -111,7 +113,7 @@ export default function Chat() {
             conversation={selectedConversation}
             onVideoCall={handleVideoCall}
             onVoiceCall={handleVoiceCall}
-            onBack={isMobile ? () => setSelectedConversation(null) : undefined}
+            onBack={isMobile ? () => setSelectedConversationId(null) : undefined}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gradient-chat">

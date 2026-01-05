@@ -111,7 +111,66 @@ export function useConversations() {
   const createConversation = async (memberIds: string[], name?: string, isGroup = false) => {
     if (!user) return { error: new Error('Not logged in') };
 
-    // Create conversation
+    // For 1-on-1 chats, check if conversation already exists
+    if (!isGroup && memberIds.length === 1) {
+      const otherUserId = memberIds[0];
+      
+      // Check in current state first
+      const existingConv = conversations.find(conv => {
+        if (conv.is_group) return false;
+        const memberUserIds = conv.members?.map(m => m.user_id) || [];
+        return memberUserIds.length === 2 && 
+               memberUserIds.includes(user.id) && 
+               memberUserIds.includes(otherUserId);
+      });
+      
+      if (existingConv) {
+        return { data: existingConv, error: null };
+      }
+
+      // Check in database if not found in state
+      const { data: memberData } = await supabase
+        .from('conversation_members')
+        .select('conversation_id, user_id')
+        .in('user_id', [user.id, otherUserId]);
+
+      if (memberData && memberData.length > 0) {
+        // Group by conversation_id and find ones with both users
+        const convMap = new Map<string, Set<string>>();
+        memberData.forEach(m => {
+          if (!convMap.has(m.conversation_id!)) {
+            convMap.set(m.conversation_id!, new Set());
+          }
+          convMap.get(m.conversation_id!)!.add(m.user_id!);
+        });
+
+        const candidateIds: string[] = [];
+        convMap.forEach((users, convId) => {
+          if (users.size === 2 && users.has(user.id) && users.has(otherUserId)) {
+            candidateIds.push(convId);
+          }
+        });
+
+        if (candidateIds.length > 0) {
+          // Find existing 1-on-1 conversation
+          const { data: existingConvData } = await supabase
+            .from('conversations')
+            .select('*')
+            .in('id', candidateIds)
+            .eq('is_group', false)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (existingConvData) {
+            await fetchConversations();
+            return { data: existingConvData, error: null };
+          }
+        }
+      }
+    }
+
+    // Create new conversation
     const { data: convData, error: convError } = await supabase
       .from('conversations')
       .insert({
