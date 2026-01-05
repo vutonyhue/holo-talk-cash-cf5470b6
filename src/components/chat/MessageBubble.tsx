@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Message } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { Coins, CheckCheck, FileIcon, Download } from 'lucide-react';
+import ImageLightbox from './ImageLightbox';
 
 interface MessageBubbleProps {
   message: Message;
@@ -12,6 +14,7 @@ interface MessageBubbleProps {
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -35,7 +38,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             src={file_url} 
             alt={file_name}
             className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
-            onClick={() => window.open(file_url, '_blank')}
+            onClick={() => setLightboxImage({ src: file_url, alt: file_name })}
           />
           {caption && (
             <p className={`px-3 py-2 text-sm ${isMine ? 'text-primary-foreground' : ''}`}>
@@ -144,6 +147,15 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxImage && (
+        <ImageLightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          onClose={() => setLightboxImage(null)}
+        />
+      )}
     </div>
   );
 }
