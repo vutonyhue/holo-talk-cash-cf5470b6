@@ -79,12 +79,15 @@ export default function Chat() {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden">
+    <div className="h-screen flex overflow-hidden relative">
       {/* Sidebar - Conversation List */}
       <div className={cn(
-        "border-r flex-shrink-0 transition-all duration-300",
+        "border-r flex-shrink-0 transition-transform duration-300 ease-out",
         isMobile 
-          ? (selectedConversation ? "hidden" : "w-full") 
+          ? cn(
+              "absolute inset-0 w-full z-10 bg-background",
+              selectedConversation ? "-translate-x-full" : "translate-x-0"
+            )
           : "w-80 lg:w-96"
       )}>
         <ConversationList
@@ -97,8 +100,11 @@ export default function Chat() {
 
       {/* Main Chat Area */}
       <div className={cn(
-        "flex-1 flex flex-col",
-        isMobile && !selectedConversation && "hidden"
+        "flex-1 flex flex-col transition-transform duration-300 ease-out",
+        isMobile && cn(
+          "absolute inset-0 w-full bg-background",
+          selectedConversation ? "translate-x-0" : "translate-x-full"
+        )
       )}>
         {selectedConversation ? (
           <ChatWindow
