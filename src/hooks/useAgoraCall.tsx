@@ -118,13 +118,18 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   const fetchToken = useCallback(async () => {
     try {
       console.log('Fetching Agora token for channel:', channelName);
+      
+      // Get current user for account-based token
+      const { data: { user } } = await supabase.auth.getUser();
+      const account = user?.id;
+      
       const { data, error } = await supabase.functions.invoke('agora-token', {
-        body: { channelName, uid: uid || 0, role: 1 },
+        body: { channelName, account, uid: uid || 0, role: 1 },
       });
 
       if (error) {
         console.error('Error fetching token:', error);
-        throw new Error(error.message || 'Failed to fetch token');
+        throw new Error(error.message || 'Không thể lấy token từ server');
       }
 
       if (data.error) {
@@ -132,7 +137,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         throw new Error(data.error);
       }
 
-      console.log('Token fetched successfully, appId prefix:', data.appId?.substring(0, 6));
+      console.log('Token fetched successfully, appId prefix:', data.appId?.substring(0, 6), 'account:', data.account?.substring(0, 8));
       return data;
     } catch (error) {
       console.error('Failed to fetch Agora token:', error);
@@ -165,12 +170,14 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       // Set up event listeners before joining
       setupEventListeners();
       
-      const { token, appId, uid: tokenUid } = await fetchToken();
+      const { token, appId, uid: tokenUid, account } = await fetchToken();
       
-      console.log('Joining channel:', channelName, 'appId:', appId?.substring(0, 6) + '...', 'uid:', tokenUid);
+      // Use account (string) or uid (number) for joining
+      const joinUid = account || tokenUid;
+      console.log('Joining channel:', channelName, 'appId:', appId?.substring(0, 6) + '...', 'joinUid:', typeof joinUid === 'string' ? joinUid.substring(0, 8) + '...' : joinUid);
       
       // Join the channel
-      await clientRef.current.join(appId, channelName, token || null, tokenUid);
+      await clientRef.current.join(appId, channelName, token || null, joinUid);
       console.log('Joined channel successfully');
       hasJoinedRef.current = true;
 
