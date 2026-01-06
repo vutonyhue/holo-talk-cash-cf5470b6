@@ -40,6 +40,8 @@ export interface Message {
   metadata: Record<string, any>;
   created_at: string;
   updated_at: string;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
   sender?: Profile;
   reply_to_id?: string | null;
   reply_to?: Message;

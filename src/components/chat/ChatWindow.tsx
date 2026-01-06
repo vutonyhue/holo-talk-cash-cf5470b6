@@ -48,7 +48,7 @@ interface ChatWindowProps {
 
 export default function ChatWindow({ conversation, conversations, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
   const { profile, user } = useAuth();
-  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage } = useMessages(conversation.id);
+  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage, deleteMessage } = useMessages(conversation.id);
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
   
   // Get message IDs for read receipts
@@ -194,8 +194,13 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     }
   };
 
-  const handleDelete = (message: Message) => {
-    toast.info('Tính năng xóa tin nhắn đang phát triển');
+  const handleDelete = async (message: Message) => {
+    const { error } = await deleteMessage(message.id);
+    if (error) {
+      toast.error('Không thể thu hồi tin nhắn');
+    } else {
+      toast.success('Đã thu hồi tin nhắn');
+    }
   };
 
   const handleReaction = (messageId: string, emoji: string) => {
