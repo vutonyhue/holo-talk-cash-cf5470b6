@@ -134,6 +134,23 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
     textareaRef.current?.focus();
   };
 
+  const handleCopy = (content: string) => {
+    navigator.clipboard.writeText(content);
+    toast.success('Đã sao chép tin nhắn');
+  };
+
+  const handleForward = (message: Message) => {
+    toast.info('Tính năng chuyển tiếp đang phát triển');
+  };
+
+  const handleDelete = (message: Message) => {
+    toast.info('Tính năng xóa tin nhắn đang phát triển');
+  };
+
+  const handleReaction = (message: Message, emoji: string) => {
+    toast.info(`Đã thả ${emoji}`);
+  };
+
   const getReplyPreview = (msg: Message) => {
     if (msg.message_type === 'image') return '📷 Hình ảnh';
     if (msg.message_type === 'file') return '📎 File';
@@ -302,6 +319,10 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
                   isRead={isReadByOthers(message.id, message.sender_id || '')}
                   showReadStatus={isLastFromSender}
                   onReply={handleReply}
+                  onCopy={handleCopy}
+                  onForward={handleForward}
+                  onDelete={handleDelete}
+                  onReaction={handleReaction}
                 />
               );
             })}
