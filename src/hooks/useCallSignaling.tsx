@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from '@/hooks/use-toast';
@@ -24,11 +24,60 @@ interface UseCallSignalingProps {
   conversationId?: string;
 }
 
+// Helper format thời lượng cuộc gọi
+const formatDuration = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins === 0) return `${secs} giây`;
+  return `${mins} phút ${secs} giây`;
+};
+
 export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {}) => {
   const { user } = useAuth();
   const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Track which calls have already had messages sent to avoid duplicates
+  const sentMessagesRef = useRef<Set<string>>(new Set());
+
+  // Hàm gửi tin nhắn thông báo cuộc gọi
+  const sendCallMessage = async (
+    convId: string,
+    callType: 'video' | 'voice',
+    status: 'rejected' | 'ended' | 'missed',
+    duration?: number,
+    callId?: string
+  ) => {
+    // Prevent duplicate messages for the same call event
+    const messageKey = `${callId}-${status}`;
+    if (callId && sentMessagesRef.current.has(messageKey)) {
+      return;
+    }
+    if (callId) {
+      sentMessagesRef.current.add(messageKey);
+    }
+
+    const statusMessages = {
+      rejected: callType === 'video' ? 'Cuộc gọi video bị từ chối' : 'Cuộc gọi thoại bị từ chối',
+      ended: callType === 'video' 
+        ? `Cuộc gọi video đã kết thúc${duration ? ` (${formatDuration(duration)})` : ''}`
+        : `Cuộc gọi thoại đã kết thúc${duration ? ` (${formatDuration(duration)})` : ''}`,
+      missed: callType === 'video' ? 'Cuộc gọi video nhỡ' : 'Cuộc gọi thoại nhỡ',
+    };
+
+    await supabase.from('messages').insert({
+      conversation_id: convId,
+      sender_id: user?.id,
+      content: statusMessages[status],
+      message_type: 'call',
+      metadata: {
+        call_type: callType,
+        call_status: status,
+        duration: duration || null,
+      },
+    });
+  };
 
   // Subscribe to call sessions for all user's conversations
   useEffect(() => {
@@ -91,16 +140,42 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
                 description: "Người nhận đã từ chối cuộc gọi của bạn",
                 variant: "destructive",
               });
+              // Send call message (only caller sends to avoid duplicates)
+              sendCallMessage(
+                updatedCall.conversation_id,
+                updatedCall.call_type as 'video' | 'voice',
+                'rejected',
+                undefined,
+                updatedCall.id
+              );
             }
             setActiveCall(null);
             setIncomingCall(null);
           } else if (updatedCall.status === 'ended') {
+            // Calculate duration
+            let duration = 0;
+            if (updatedCall.started_at && updatedCall.ended_at) {
+              duration = Math.floor(
+                (new Date(updatedCall.ended_at).getTime() - new Date(updatedCall.started_at).getTime()) / 1000
+              );
+            }
+            
             // Show toast for ended call
             if (activeCall?.id === updatedCall.id || incomingCall?.id === updatedCall.id) {
               toast({
                 title: "Cuộc gọi đã kết thúc",
                 description: "Cuộc gọi đã được kết thúc",
               });
+              // Send call message (only the person who sees this update sends)
+              if (activeCall?.id === updatedCall.id) {
+                sendCallMessage(
+                  updatedCall.conversation_id,
+                  updatedCall.call_type as 'video' | 'voice',
+                  'ended',
+                  duration,
+                  updatedCall.id
+                );
+              }
             }
             setActiveCall(null);
             setIncomingCall(null);
@@ -110,6 +185,14 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
               description: "Bạn có một cuộc gọi nhỡ",
               variant: "destructive",
             });
+            // Send missed call message
+            sendCallMessage(
+              updatedCall.conversation_id,
+              updatedCall.call_type as 'video' | 'voice',
+              'missed',
+              undefined,
+              updatedCall.id
+            );
             setActiveCall(null);
             setIncomingCall(null);
           }

@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2, Mic } from 'lucide-react';
+import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2, Mic, Video, Phone, PhoneOff, PhoneMissed } from 'lucide-react';
 import VoiceMessagePlayer from './VoiceMessagePlayer';
 import {
   ContextMenu,
@@ -124,6 +124,43 @@ export default function MessageBubble({
               {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
             </span>
           </div>
+        </div>
+      </div>
+    );
+  }
+  // Call message (system message) - render separately
+  if (message.message_type === 'call') {
+    const metadata = message.metadata as {
+      call_type: 'video' | 'voice';
+      call_status: 'rejected' | 'ended' | 'missed';
+      duration?: number;
+    } | null;
+    
+    const callType = metadata?.call_type || 'voice';
+    const callStatus = metadata?.call_status || 'ended';
+    
+    const statusConfig = {
+      rejected: { icon: PhoneOff, color: 'text-destructive' },
+      ended: { icon: Phone, color: 'text-muted-foreground' },
+      missed: { icon: PhoneMissed, color: 'text-destructive' },
+    };
+    
+    const config = statusConfig[callStatus];
+    const StatusIcon = config.icon;
+    const isVideo = callType === 'video';
+    
+    return (
+      <div className="flex justify-center my-4">
+        <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 rounded-full text-sm text-muted-foreground border border-border">
+          {isVideo ? (
+            <Video className={`w-4 h-4 ${config.color}`} />
+          ) : (
+            <StatusIcon className={`w-4 h-4 ${config.color}`} />
+          )}
+          <span>{message.content}</span>
+          <span className="text-xs opacity-70">
+            {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
+          </span>
         </div>
       </div>
     );
