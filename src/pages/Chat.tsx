@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Conversation } from '@/types';
+import { useCallSignaling } from '@/hooks/useCallSignaling';
 import ConversationList from '@/components/chat/ConversationList';
 import ChatWindow from '@/components/chat/ChatWindow';
 import NewChatDialog from '@/components/chat/NewChatDialog';
 import VideoCallModal from '@/components/chat/VideoCallModal';
+import { IncomingCallModal } from '@/components/chat/IncomingCallModal';
 import { MessageCircle, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -19,8 +20,16 @@ export default function Chat() {
   
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [showNewChat, setShowNewChat] = useState(false);
-  const [showVideoCall, setShowVideoCall] = useState(false);
-  const [callType, setCallType] = useState<'video' | 'voice'>('video');
+
+  // Call signaling
+  const {
+    incomingCall,
+    activeCall,
+    startCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+  } = useCallSignaling();
 
   // Derive selectedConversation from ID
   const selectedConversation = selectedConversationId 
@@ -40,27 +49,47 @@ export default function Chat() {
     }
   };
 
-  const handleVideoCall = () => {
-    setCallType('video');
-    setShowVideoCall(true);
+  const handleVideoCall = async () => {
+    if (!selectedConversation) return;
+    await startCall(selectedConversation.id, 'video');
   };
 
-  const handleVoiceCall = () => {
-    setCallType('voice');
-    setShowVideoCall(true);
+  const handleVoiceCall = async () => {
+    if (!selectedConversation) return;
+    await startCall(selectedConversation.id, 'voice');
+  };
+
+  const handleAcceptCall = async () => {
+    if (incomingCall) {
+      await acceptCall(incomingCall.id);
+    }
+  };
+
+  const handleRejectCall = async () => {
+    if (incomingCall) {
+      await rejectCall(incomingCall.id);
+    }
+  };
+
+  const handleEndCall = async () => {
+    await endCall();
   };
 
   const getParticipantInfo = () => {
-    if (!selectedConversation) return { name: '', avatar: undefined };
+    const conv = activeCall 
+      ? conversations.find(c => c.id === activeCall.conversation_id) 
+      : selectedConversation;
     
-    if (selectedConversation.is_group) {
+    if (!conv) return { name: '', avatar: undefined };
+    
+    if (conv.is_group) {
       return { 
-        name: selectedConversation.name || 'Nhóm chat', 
-        avatar: selectedConversation.avatar_url || undefined 
+        name: conv.name || 'Nhóm chat', 
+        avatar: conv.avatar_url || undefined 
       };
     }
     
-    const otherMember = selectedConversation.members?.find(m => m.user_id !== profile?.id);
+    const otherMember = conv.members?.find(m => m.user_id !== profile?.id);
     return { 
       name: otherMember?.profile?.display_name || otherMember?.profile?.username || 'Unknown',
       avatar: otherMember?.profile?.avatar_url || undefined
@@ -155,14 +184,24 @@ export default function Chat() {
         onCreate={handleNewChat}
       />
 
+      {/* Incoming Call Modal */}
+      {incomingCall && (
+        <IncomingCallModal
+          call={incomingCall}
+          onAccept={handleAcceptCall}
+          onReject={handleRejectCall}
+        />
+      )}
+
       {/* Video/Voice Call Modal */}
       <VideoCallModal
-        open={showVideoCall}
-        onClose={() => setShowVideoCall(false)}
-        callType={callType}
+        open={!!activeCall}
+        onClose={handleEndCall}
+        callType={activeCall?.call_type || 'video'}
         participantName={getParticipantInfo().name}
         participantAvatar={getParticipantInfo().avatar}
         isGroup={selectedConversation?.is_group}
+        channelName={activeCall?.channel_name}
       />
     </div>
   );

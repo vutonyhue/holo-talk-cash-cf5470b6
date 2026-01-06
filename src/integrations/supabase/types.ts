@@ -46,6 +46,53 @@ export type Database = {
           },
         ]
       }
+      call_sessions: {
+        Row: {
+          agora_token: string | null
+          call_type: string
+          caller_id: string
+          channel_name: string
+          conversation_id: string
+          created_at: string
+          ended_at: string | null
+          id: string
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          agora_token?: string | null
+          call_type?: string
+          caller_id: string
+          channel_name: string
+          conversation_id: string
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          agora_token?: string | null
+          call_type?: string
+          caller_id?: string
+          channel_name?: string
+          conversation_id?: string
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_sessions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calls: {
         Row: {
           call_type: string | null
