@@ -221,6 +221,34 @@ export function useMessages(conversationId: string | null) {
     });
   };
 
+  const sendVoiceMessage = async (audioBlob: Blob, duration: number) => {
+    if (!user || !conversationId) return { error: new Error('Not ready') };
+
+    // Create file path
+    const fileName = `${user.id}/${conversationId}/${Date.now()}.webm`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(fileName, audioBlob, {
+        contentType: 'audio/webm',
+      });
+
+    if (uploadError) return { error: uploadError };
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('chat-attachments')
+      .getPublicUrl(fileName);
+
+    // Send message
+    return sendMessage('Tin nhắn thoại', 'voice', {
+      file_url: publicUrl,
+      duration: duration,
+      file_type: 'audio/webm',
+    });
+  };
+
   const deleteMessage = async (messageId: string) => {
     if (!user) return { error: new Error('Not authenticated') };
 
@@ -253,6 +281,7 @@ export function useMessages(conversationId: string | null) {
     sendMessage,
     sendCryptoMessage,
     sendImageMessage,
+    sendVoiceMessage,
     deleteMessage,
     fetchMessages,
   };

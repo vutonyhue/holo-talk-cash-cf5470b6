@@ -3,7 +3,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2 } from 'lucide-react';
+import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2, Mic } from 'lucide-react';
+import VoiceMessagePlayer from './VoiceMessagePlayer';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -60,6 +61,7 @@ export default function MessageBubble({
     if (msg.message_type === 'image') return '📷 Hình ảnh';
     if (msg.message_type === 'file') return '📎 File';
     if (msg.message_type === 'crypto') return '💰 Crypto';
+    if (msg.message_type === 'voice') return '🎤 Tin nhắn thoại';
     return msg.content?.slice(0, 50) + (msg.content && msg.content.length > 50 ? '...' : '');
   };
 
@@ -220,6 +222,25 @@ export default function MessageBubble({
               </p>
             </div>
           </div>
+        </div>
+      );
+    }
+
+    // Voice message
+    if (message.message_type === 'voice') {
+      const { file_url, duration } = message.metadata as { file_url: string; duration: number };
+      return (
+        <div className="flex flex-col">
+          {message.reply_to && (
+            <div className={`px-3 pt-2 rounded-t-2xl ${isMine ? 'gradient-primary' : 'bg-card'}`}>
+              {renderReplyPreview()}
+            </div>
+          )}
+          <VoiceMessagePlayer 
+            src={file_url} 
+            duration={duration}
+            isMine={isMine}
+          />
         </div>
       );
     }

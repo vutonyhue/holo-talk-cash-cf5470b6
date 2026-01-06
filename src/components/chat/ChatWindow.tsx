@@ -29,8 +29,11 @@ import {
   Loader2,
   ArrowLeft,
   X,
-  Reply
+  Reply,
+  Mic
 } from 'lucide-react';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import VoiceRecorder from './VoiceRecorder';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,8 +51,9 @@ interface ChatWindowProps {
 
 export default function ChatWindow({ conversation, conversations, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
   const { profile, user } = useAuth();
-  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage, deleteMessage } = useMessages(conversation.id);
+  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage, sendVoiceMessage, deleteMessage } = useMessages(conversation.id);
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
+  const { isRecording, duration, startRecording, stopRecording, cancelRecording } = useVoiceRecorder();
   
   // Get message IDs for read receipts
   const messageIds = useMemo(() => messages.map(m => m.id), [messages]);
@@ -281,6 +285,28 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     }
   };
 
+  const handleStartRecording = async () => {
+    const success = await startRecording();
+    if (!success) {
+      toast.error('Không thể truy cập microphone. Vui lòng cấp quyền.');
+    }
+  };
+
+  const handleSendVoice = async () => {
+    const audioBlob = await stopRecording();
+    if (audioBlob && duration > 0) {
+      const { error } = await sendVoiceMessage(audioBlob, duration);
+      if (error) {
+        toast.error('Không thể gửi tin nhắn thoại');
+        console.error('Voice send error:', error);
+      }
+    }
+  };
+
+  const handleCancelRecording = () => {
+    cancelRecording();
+  };
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
@@ -434,76 +460,92 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
 
       {/* Input */}
       <div className="p-4 border-t bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground hover:text-primary">
-              <Smile className="w-5 h-5" />
-            </Button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar"
-              className="hidden"
-            />
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="rounded-xl text-muted-foreground hover:text-primary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Paperclip className="w-5 h-5" />
-              )}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="rounded-xl text-muted-foreground hover:text-fun-yellow"
-              style={{ '--fun-yellow': 'var(--fun-yellow)' } as React.CSSProperties}
-              onClick={() => setShowCryptoDialog(true)}
-            >
-              <Coins className="w-5 h-5" />
-            </Button>
-          </div>
-
-          <div className="flex-1 relative">
-            <ContextMenu>
-              <ContextMenuTrigger asChild>
-                <Textarea
-                  ref={textareaRef}
-                  placeholder="Nhập tin nhắn..."
-                  value={newMessage}
-                  onChange={(e) => {
-                    setNewMessage(e.target.value);
-                    adjustTextareaHeight();
-                    broadcastTyping();
-                  }}
-                  onKeyDown={handleKeyDown}
-                  rows={1}
-                  className="min-h-[44px] max-h-[120px] py-3 pr-12 resize-none rounded-xl bg-muted/50 border-0 focus-visible:ring-primary overflow-y-auto"
-                />
-              </ContextMenuTrigger>
-              <TextInputContextMenu
-                textareaRef={textareaRef}
-                value={newMessage}
-                onChange={setNewMessage}
-                onKeyDown={handleKeyDown}
+        {isRecording ? (
+          <VoiceRecorder
+            duration={duration}
+            onCancel={handleCancelRecording}
+            onSend={handleSendVoice}
+          />
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="rounded-xl text-muted-foreground hover:text-primary">
+                <Smile className="w-5 h-5" />
+              </Button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar"
+                className="hidden"
               />
-            </ContextMenu>
-            <Button 
-              size="icon" 
-              className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg gradient-primary"
-              onClick={handleSend}
-              disabled={!newMessage.trim()}
-            >
-              <Send className="w-4 h-4" />
-            </Button>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="rounded-xl text-muted-foreground hover:text-primary"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Paperclip className="w-5 h-5" />
+                )}
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="rounded-xl text-muted-foreground hover:text-primary"
+                onClick={handleStartRecording}
+              >
+                <Mic className="w-5 h-5" />
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="rounded-xl text-muted-foreground hover:text-fun-yellow"
+                style={{ '--fun-yellow': 'var(--fun-yellow)' } as React.CSSProperties}
+                onClick={() => setShowCryptoDialog(true)}
+              >
+                <Coins className="w-5 h-5" />
+              </Button>
+            </div>
+
+            <div className="flex-1 relative">
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder="Nhập tin nhắn..."
+                    value={newMessage}
+                    onChange={(e) => {
+                      setNewMessage(e.target.value);
+                      adjustTextareaHeight();
+                      broadcastTyping();
+                    }}
+                    onKeyDown={handleKeyDown}
+                    rows={1}
+                    className="min-h-[44px] max-h-[120px] py-3 pr-12 resize-none rounded-xl bg-muted/50 border-0 focus-visible:ring-primary overflow-y-auto"
+                  />
+                </ContextMenuTrigger>
+                <TextInputContextMenu
+                  textareaRef={textareaRef}
+                  value={newMessage}
+                  onChange={setNewMessage}
+                  onKeyDown={handleKeyDown}
+                />
+              </ContextMenu>
+              <Button 
+                size="icon" 
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg gradient-primary"
+                onClick={handleSend}
+                disabled={!newMessage.trim()}
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Crypto Dialog */}
