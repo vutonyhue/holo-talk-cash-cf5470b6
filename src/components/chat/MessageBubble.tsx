@@ -11,6 +11,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { ReactionGroup } from '@/hooks/useReactions';
+import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
   message: Message;
@@ -21,7 +23,8 @@ interface MessageBubbleProps {
   onForward?: (message: Message) => void;
   onCopy?: (content: string) => void;
   onDelete?: (message: Message) => void;
-  onReaction?: (message: Message, emoji: string) => void;
+  onReaction?: (messageId: string, emoji: string) => void;
+  reactionGroups?: ReactionGroup[];
 }
 
 export default function MessageBubble({ 
@@ -33,7 +36,8 @@ export default function MessageBubble({
   onForward,
   onCopy,
   onDelete,
-  onReaction
+  onReaction,
+  reactionGroups = []
 }: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
@@ -220,7 +224,7 @@ export default function MessageBubble({
                 <button
                   key={emoji}
                   className="text-xl hover:scale-125 transition-transform p-1"
-                  onClick={() => onReaction?.(message, emoji)}
+                  onClick={() => onReaction?.(message.id, emoji)}
                 >
                   {emoji}
                 </button>
@@ -258,6 +262,29 @@ export default function MessageBubble({
             )}
           </ContextMenuContent>
         </ContextMenu>
+        
+        {/* Reactions display */}
+        {reactionGroups.length > 0 && (
+          <div className={`flex flex-wrap gap-1 mt-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
+            {reactionGroups.map((group) => (
+              <button
+                key={group.emoji}
+                onClick={() => onReaction?.(message.id, group.emoji)}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors",
+                  group.hasReacted
+                    ? "bg-primary/20 border border-primary/40"
+                    : "bg-muted/80 hover:bg-muted border border-transparent"
+                )}
+              >
+                <span>{group.emoji}</span>
+                <span className={group.hasReacted ? "text-primary font-medium" : "text-muted-foreground"}>
+                  {group.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         
         <div className={`flex items-center gap-1 mt-1 ${isMine ? 'mr-1' : 'ml-1'}`}>
           <span className="text-[11px] text-muted-foreground">

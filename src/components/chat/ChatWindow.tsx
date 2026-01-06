@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { useReadReceipts } from '@/hooks/useReadReceipts';
+import { useReactions } from '@/hooks/useReactions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -52,6 +53,15 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const messageIds = useMemo(() => messages.map(m => m.id), [messages]);
   const { markAsRead, isReadByOthers } = useReadReceipts(conversation.id, messageIds);
   
+  // Reactions
+  const { fetchReactions, toggleReaction, getReactionGroups } = useReactions(conversation.id);
+  
+  // Fetch reactions when messages change
+  useEffect(() => {
+    if (messageIds.length > 0) {
+      fetchReactions(messageIds);
+    }
+  }, [messageIds, fetchReactions]);
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -186,8 +196,8 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     toast.info('Tính năng xóa tin nhắn đang phát triển');
   };
 
-  const handleReaction = (message: Message, emoji: string) => {
-    toast.info(`Đã thả ${emoji}`);
+  const handleReaction = (messageId: string, emoji: string) => {
+    toggleReaction(messageId, emoji);
   };
 
   const getReplyPreview = (msg: Message) => {
@@ -362,6 +372,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
                   onForward={handleForward}
                   onDelete={handleDelete}
                   onReaction={handleReaction}
+                  reactionGroups={getReactionGroups(message.id)}
                 />
               );
             })}
