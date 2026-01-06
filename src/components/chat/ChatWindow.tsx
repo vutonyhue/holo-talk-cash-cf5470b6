@@ -3,6 +3,7 @@ import { Conversation, Message } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
+import { useReadReceipts } from '@/hooks/useReadReceipts';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -38,9 +39,14 @@ interface ChatWindowProps {
 }
 
 export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage } = useMessages(conversation.id);
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
+  
+  // Get message IDs for read receipts
+  const messageIds = useMemo(() => messages.map(m => m.id), [messages]);
+  const { markAsRead, isReadByOthers } = useReadReceipts(conversation.id, messageIds);
+  
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -89,6 +95,20 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Mark messages as read when they are displayed
+  useEffect(() => {
+    if (!user || messages.length === 0) return;
+    
+    // Mark all messages from others as read
+    const otherMessages = messages
+      .filter(m => m.sender_id !== user.id)
+      .map(m => m.id);
+    
+    if (otherMessages.length > 0) {
+      markAsRead(otherMessages);
+    }
+  }, [messages, user, markAsRead]);
 
   const handleSend = async () => {
     if (!newMessage.trim()) return;
@@ -252,13 +272,21 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
           </div>
         ) : (
           <div className="space-y-1">
-            {messages.map((message) => (
-              <MessageBubble 
-                key={message.id} 
-                message={message} 
-                onImageClick={handleImageClick}
-              />
-            ))}
+            {messages.map((message, index) => {
+              const isLastFromSender = 
+                index === messages.length - 1 || 
+                messages[index + 1]?.sender_id !== message.sender_id;
+              
+              return (
+                <MessageBubble 
+                  key={message.id} 
+                  message={message} 
+                  onImageClick={handleImageClick}
+                  isRead={isReadByOthers(message.id, message.sender_id || '')}
+                  showReadStatus={isLastFromSender}
+                />
+              );
+            })}
             
             {/* Typing Indicator */}
             {typingUsers.length > 0 && (
