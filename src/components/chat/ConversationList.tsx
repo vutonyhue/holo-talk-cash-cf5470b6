@@ -90,7 +90,7 @@ export default function ConversationList({
                 <User className="mr-2 h-4 w-4" />
                 Hồ sơ
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 Cài đặt
               </DropdownMenuItem>
