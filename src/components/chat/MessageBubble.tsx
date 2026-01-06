@@ -3,8 +3,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Coins, CheckCheck, FileIcon, Download, Reply } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2 } from 'lucide-react';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 
 interface MessageBubbleProps {
   message: Message;
@@ -12,9 +18,23 @@ interface MessageBubbleProps {
   isRead?: boolean;
   showReadStatus?: boolean;
   onReply?: (message: Message) => void;
+  onForward?: (message: Message) => void;
+  onCopy?: (content: string) => void;
+  onDelete?: (message: Message) => void;
+  onReaction?: (message: Message, emoji: string) => void;
 }
 
-export default function MessageBubble({ message, onImageClick, isRead = false, showReadStatus = true, onReply }: MessageBubbleProps) {
+export default function MessageBubble({ 
+  message, 
+  onImageClick, 
+  isRead = false, 
+  showReadStatus = true, 
+  onReply,
+  onForward,
+  onCopy,
+  onDelete,
+  onReaction
+}: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
 
@@ -167,6 +187,8 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
     );
   };
 
+  const emojis = ['❤️', '😂', '👍', '😮', '😢', '😡'];
+
   return (
     <div className={`group flex gap-2 mb-3 animate-bubble-in ${isMine ? 'flex-row-reverse' : ''}`}>
       {!isMine && (
@@ -185,20 +207,57 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
           </span>
         )}
         
-        <div className={`flex items-center gap-1 ${isMine ? 'flex-row-reverse' : ''}`}>
-          {renderContent()}
-          
-          {onReply && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-7 h-7 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => onReply(message)}
-            >
-              <Reply className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="cursor-pointer">
+              {renderContent()}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-52">
+            {/* Emoji reactions */}
+            <div className="flex items-center justify-around px-2 py-2 border-b">
+              {emojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  className="text-xl hover:scale-125 transition-transform p-1"
+                  onClick={() => onReaction?.(message, emoji)}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            
+            <ContextMenuItem onClick={() => onReply?.(message)}>
+              <Reply className="mr-2 h-4 w-4" />
+              Trả lời
+            </ContextMenuItem>
+            
+            {message.content && (
+              <ContextMenuItem onClick={() => onCopy?.(message.content || '')}>
+                <Copy className="mr-2 h-4 w-4" />
+                Sao chép
+              </ContextMenuItem>
+            )}
+            
+            <ContextMenuItem onClick={() => onForward?.(message)}>
+              <Forward className="mr-2 h-4 w-4" />
+              Chuyển tiếp
+            </ContextMenuItem>
+            
+            {isMine && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem 
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => onDelete?.(message)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Xóa
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
         
         <div className={`flex items-center gap-1 mt-1 ${isMine ? 'mr-1' : 'ml-1'}`}>
           <span className="text-[11px] text-muted-foreground">
