@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { toast } from '@/hooks/use-toast';
 
 export interface CallSession {
   id: string;
@@ -82,7 +83,33 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
           if (updatedCall.status === 'accepted') {
             setActiveCall(updatedCall);
             setIncomingCall(null);
-          } else if (['rejected', 'ended', 'missed'].includes(updatedCall.status)) {
+          } else if (updatedCall.status === 'rejected') {
+            // Show toast for rejected call (only for caller)
+            if (activeCall?.id === updatedCall.id) {
+              toast({
+                title: "Cuộc gọi bị từ chối",
+                description: "Người nhận đã từ chối cuộc gọi của bạn",
+                variant: "destructive",
+              });
+            }
+            setActiveCall(null);
+            setIncomingCall(null);
+          } else if (updatedCall.status === 'ended') {
+            // Show toast for ended call
+            if (activeCall?.id === updatedCall.id || incomingCall?.id === updatedCall.id) {
+              toast({
+                title: "Cuộc gọi đã kết thúc",
+                description: "Cuộc gọi đã được kết thúc",
+              });
+            }
+            setActiveCall(null);
+            setIncomingCall(null);
+          } else if (updatedCall.status === 'missed') {
+            toast({
+              title: "Cuộc gọi nhỡ",
+              description: "Bạn có một cuộc gọi nhỡ",
+              variant: "destructive",
+            });
             setActiveCall(null);
             setIncomingCall(null);
           }
@@ -183,6 +210,10 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
       }
 
       console.log('Call rejected');
+      toast({
+        title: "Đã từ chối cuộc gọi",
+        description: "Bạn đã từ chối cuộc gọi đến",
+      });
       setIncomingCall(null);
     } catch (error) {
       console.error('Failed to reject call:', error);
