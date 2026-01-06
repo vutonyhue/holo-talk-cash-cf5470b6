@@ -134,10 +134,23 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     return receipts.filter((r) => r.user_id !== senderId).length;
   }, [readReceipts]);
 
+  // Get the latest read time (excluding sender)
+  const getReadTime = useCallback((messageId: string, senderId: string): string | null => {
+    const receipts = readReceipts[messageId] || [];
+    const otherReceipts = receipts.filter((r) => r.user_id !== senderId);
+    if (otherReceipts.length === 0) return null;
+    // Return the latest read time
+    const latestReceipt = otherReceipts.reduce((latest, current) => 
+      new Date(current.read_at) > new Date(latest.read_at) ? current : latest
+    );
+    return latestReceipt.read_at;
+  }, [readReceipts]);
+
   return {
     readReceipts,
     markAsRead,
     isReadByOthers,
     getReadCount,
+    getReadTime,
   };
 }

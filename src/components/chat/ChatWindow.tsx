@@ -53,7 +53,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   
   // Get message IDs for read receipts
   const messageIds = useMemo(() => messages.map(m => m.id), [messages]);
-  const { markAsRead, isReadByOthers } = useReadReceipts(conversation.id, messageIds);
+  const { markAsRead, isReadByOthers, getReadTime } = useReadReceipts(conversation.id, messageIds);
   
   // Reactions
   const { fetchReactions, toggleReaction, getReactionGroups } = useReactions(conversation.id);
@@ -373,6 +373,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
                   message={message} 
                   onImageClick={handleImageClick}
                   isRead={isReadByOthers(message.id, message.sender_id || '')}
+                  readTime={getReadTime(message.id, message.sender_id || '')}
                   showReadStatus={isLastFromSender}
                   onReply={handleReply}
                   onCopy={handleCopy}
