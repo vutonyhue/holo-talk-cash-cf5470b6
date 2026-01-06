@@ -1,15 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { useWallet } from '@/hooks/useWallet';
-import { Conversation, Profile } from '@/types';
+import { Conversation } from '@/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { MessageCircle, Plus, Search, Settings, LogOut, User, Wallet } from 'lucide-react';
+import { MessageCircle, Plus, Search, Settings, LogOut, User } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,7 +16,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import WalletConnectDialog from './WalletConnectDialog';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -34,9 +32,7 @@ export default function ConversationList({
 }: ConversationListProps) {
   const navigate = useNavigate();
   const { profile, signOut } = useAuth();
-  const { isConnected, address, shortenAddress } = useWallet();
   const [searchQuery, setSearchQuery] = useState('');
-  const [showWalletDialog, setShowWalletDialog] = useState(false);
 
   const getConversationName = (conv: Conversation) => {
     if (conv.is_group && conv.name) return conv.name;
@@ -93,17 +89,6 @@ export default function ConversationList({
               <DropdownMenuItem onClick={() => navigate('/profile')}>
                 <User className="mr-2 h-4 w-4" />
                 Hồ sơ
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowWalletDialog(true)}>
-                <Wallet className="mr-2 h-4 w-4" />
-                {isConnected && address ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-500" />
-                    {shortenAddress(address)}
-                  </span>
-                ) : (
-                  'Kết nối ví'
-                )}
               </DropdownMenuItem>
               <DropdownMenuItem>
                 <Settings className="mr-2 h-4 w-4" />
@@ -198,12 +183,6 @@ export default function ConversationList({
           )}
         </div>
       </ScrollArea>
-
-      {/* Wallet Connect Dialog */}
-      <WalletConnectDialog 
-        open={showWalletDialog} 
-        onClose={() => setShowWalletDialog(false)} 
-      />
     </div>
   );
 }
