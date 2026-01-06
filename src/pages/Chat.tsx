@@ -111,6 +111,7 @@ export default function Chat() {
         {selectedConversation ? (
           <ChatWindow
             conversation={selectedConversation}
+            conversations={conversations}
             onVideoCall={handleVideoCall}
             onVoiceCall={handleVoiceCall}
             onBack={isMobile ? () => setSelectedConversationId(null) : undefined}
