@@ -18,7 +18,7 @@ const BNB_CHAIN_CONFIG = {
 // CAMLY COIN Configuration on BNB Smart Chain
 export const CAMLY_COIN_CONFIG = {
   address: '0x0910320181889feFDE0BB1Ca63962b0A8882e413',
-  decimals: 18,
+  decimals: 3, // CAMLY token có 3 decimals (đã xác nhận trên BSCScan)
   symbol: 'CAMLY',
   name: 'CAMLY COIN',
 };
