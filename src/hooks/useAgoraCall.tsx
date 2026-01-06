@@ -27,6 +27,10 @@ interface AgoraCallState {
 
 export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgoraCallProps) => {
   const clientRef = useRef<IAgoraRTCClient | null>(null);
+  const joinInProgressRef = useRef(false);
+  const hasJoinedRef = useRef(false);
+  const eventListenersSetRef = useRef(false);
+  
   const [state, setState] = useState<AgoraCallState>({
     localVideoTrack: null,
     localAudioTrack: null,
@@ -48,43 +52,24 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
       console.log('Agora client created');
     }
+    
+    return () => {
+      // Cleanup on unmount
+      if (clientRef.current) {
+        clientRef.current.removeAllListeners();
+      }
+    };
   }, []);
 
-  // Fetch token from edge function
-  const fetchToken = useCallback(async () => {
-    try {
-      console.log('Fetching Agora token for channel:', channelName);
-      const { data, error } = await supabase.functions.invoke('agora-token', {
-        body: { channelName, uid: uid || 0, role: 1 },
-      });
-
-      if (error) {
-        console.error('Error fetching token:', error);
-        throw error;
-      }
-
-      console.log('Token fetched successfully');
-      return data;
-    } catch (error) {
-      console.error('Failed to fetch Agora token:', error);
-      throw error;
-    }
-  }, [channelName, uid]);
-
-  // Join channel
-  const joinChannel = useCallback(async () => {
-    if (!clientRef.current || !channelName || state.isJoined) return;
-
-    setState(prev => ({ ...prev, isConnecting: true, error: null }));
-
-    try {
-      const { token, appId, uid: tokenUid } = await fetchToken();
-      
-      console.log('Joining channel with appId:', appId, 'channel:', channelName);
-      
-      // Set up event handlers
-      clientRef.current.on('user-published', async (user, mediaType) => {
-        console.log('User published:', user.uid, mediaType);
+  // Set up event listeners once
+  const setupEventListeners = useCallback(() => {
+    if (!clientRef.current || eventListenersSetRef.current) return;
+    
+    eventListenersSetRef.current = true;
+    
+    clientRef.current.on('user-published', async (user, mediaType) => {
+      console.log('User published:', user.uid, mediaType);
+      try {
         await clientRef.current!.subscribe(user, mediaType);
         
         if (mediaType === 'video') {
@@ -97,47 +82,127 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         if (mediaType === 'audio') {
           user.audioTrack?.play();
         }
-      });
+      } catch (err) {
+        console.error('Error subscribing to user:', err);
+      }
+    });
 
-      clientRef.current.on('user-unpublished', (user, mediaType) => {
-        console.log('User unpublished:', user.uid, mediaType);
-        if (mediaType === 'video') {
-          setState(prev => ({
-            ...prev,
-            remoteUsers: prev.remoteUsers.filter(u => u.uid !== user.uid),
-          }));
-        }
-      });
-
-      clientRef.current.on('user-left', (user) => {
-        console.log('User left:', user.uid);
+    clientRef.current.on('user-unpublished', (user, mediaType) => {
+      console.log('User unpublished:', user.uid, mediaType);
+      if (mediaType === 'video') {
         setState(prev => ({
           ...prev,
           remoteUsers: prev.remoteUsers.filter(u => u.uid !== user.uid),
         }));
+      }
+    });
+
+    clientRef.current.on('user-left', (user) => {
+      console.log('User left:', user.uid);
+      setState(prev => ({
+        ...prev,
+        remoteUsers: prev.remoteUsers.filter(u => u.uid !== user.uid),
+      }));
+    });
+
+    clientRef.current.on('connection-state-change', (curState, prevState) => {
+      console.log('Connection state changed:', prevState, '->', curState);
+    });
+
+    clientRef.current.on('exception', (event) => {
+      console.error('Agora exception:', event);
+    });
+  }, []);
+
+  // Fetch token from edge function
+  const fetchToken = useCallback(async () => {
+    try {
+      console.log('Fetching Agora token for channel:', channelName);
+      const { data, error } = await supabase.functions.invoke('agora-token', {
+        body: { channelName, uid: uid || 0, role: 1 },
       });
 
+      if (error) {
+        console.error('Error fetching token:', error);
+        throw new Error(error.message || 'Failed to fetch token');
+      }
+
+      if (data.error) {
+        console.error('Token API error:', data.error);
+        throw new Error(data.error);
+      }
+
+      console.log('Token fetched successfully, appId prefix:', data.appId?.substring(0, 6));
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch Agora token:', error);
+      throw error;
+    }
+  }, [channelName, uid]);
+
+  // Join channel
+  const joinChannel = useCallback(async () => {
+    // Prevent multiple join attempts
+    if (!clientRef.current || !channelName) {
+      console.log('Cannot join: missing client or channelName');
+      return;
+    }
+    
+    if (joinInProgressRef.current) {
+      console.log('Join already in progress, skipping');
+      return;
+    }
+    
+    if (hasJoinedRef.current) {
+      console.log('Already joined, skipping');
+      return;
+    }
+
+    joinInProgressRef.current = true;
+    setState(prev => ({ ...prev, isConnecting: true, error: null }));
+
+    try {
+      // Set up event listeners before joining
+      setupEventListeners();
+      
+      const { token, appId, uid: tokenUid } = await fetchToken();
+      
+      console.log('Joining channel:', channelName, 'appId:', appId?.substring(0, 6) + '...', 'uid:', tokenUid);
+      
       // Join the channel
       await clientRef.current.join(appId, channelName, token || null, tokenUid);
       console.log('Joined channel successfully');
+      hasJoinedRef.current = true;
 
       // Create and publish local tracks
       const tracks: (ICameraVideoTrack | IMicrophoneAudioTrack)[] = [];
       
-      // Always create audio track
-      const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-      localAudioTrackRef.current = audioTrack;
-      tracks.push(audioTrack);
+      try {
+        // Always create audio track
+        const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        localAudioTrackRef.current = audioTrack;
+        tracks.push(audioTrack);
+        console.log('Audio track created');
+      } catch (audioErr) {
+        console.error('Failed to create audio track:', audioErr);
+      }
       
       // Create video track only for video calls
       if (isVideoCall) {
-        const videoTrack = await AgoraRTC.createCameraVideoTrack();
-        localVideoTrackRef.current = videoTrack;
-        tracks.push(videoTrack);
+        try {
+          const videoTrack = await AgoraRTC.createCameraVideoTrack();
+          localVideoTrackRef.current = videoTrack;
+          tracks.push(videoTrack);
+          console.log('Video track created');
+        } catch (videoErr) {
+          console.error('Failed to create video track:', videoErr);
+        }
       }
 
-      await clientRef.current.publish(tracks);
-      console.log('Published local tracks');
+      if (tracks.length > 0) {
+        await clientRef.current.publish(tracks);
+        console.log('Published local tracks:', tracks.length);
+      }
 
       setState(prev => ({
         ...prev,
@@ -148,13 +213,28 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       }));
     } catch (error: any) {
       console.error('Failed to join channel:', error);
+      hasJoinedRef.current = false;
+      
+      let errorMessage = 'Không thể kết nối cuộc gọi';
+      if (error.message?.includes('AGORA_APP_ID')) {
+        errorMessage = error.message;
+      } else if (error.code === 'INVALID_VENDOR_KEY' || error.message?.includes('vendor key')) {
+        errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra cấu hình.';
+      } else if (error.code === 'INVALID_OPERATION') {
+        errorMessage = 'Lỗi kết nối. Vui lòng thử lại.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       setState(prev => ({
         ...prev,
         isConnecting: false,
-        error: error.message || 'Failed to join call',
+        error: errorMessage,
       }));
+    } finally {
+      joinInProgressRef.current = false;
     }
-  }, [channelName, fetchToken, state.isJoined, isVideoCall]);
+  }, [channelName, fetchToken, isVideoCall, setupEventListeners]);
 
   // Leave channel
   const leaveChannel = useCallback(async () => {
@@ -174,8 +254,17 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         localVideoTrackRef.current = null;
       }
 
-      await clientRef.current.leave();
-      console.log('Left channel');
+      if (hasJoinedRef.current) {
+        await clientRef.current.leave();
+        console.log('Left channel');
+      }
+
+      hasJoinedRef.current = false;
+      joinInProgressRef.current = false;
+      eventListenersSetRef.current = false;
+      
+      // Remove all listeners
+      clientRef.current.removeAllListeners();
 
       setState({
         localVideoTrack: null,
@@ -191,6 +280,13 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       console.error('Failed to leave channel:', error);
     }
   }, []);
+
+  // Retry connection
+  const retryConnection = useCallback(async () => {
+    hasJoinedRef.current = false;
+    joinInProgressRef.current = false;
+    await joinChannel();
+  }, [joinChannel]);
 
   // Toggle mute
   const toggleMute = useCallback(async () => {
@@ -214,10 +310,10 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
   // Auto join when enabled
   useEffect(() => {
-    if (enabled && channelName && !state.isJoined && !state.isConnecting) {
+    if (enabled && channelName && !hasJoinedRef.current && !joinInProgressRef.current) {
       joinChannel();
     }
-  }, [enabled, channelName, state.isJoined, state.isConnecting, joinChannel]);
+  }, [enabled, channelName, joinChannel]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -238,6 +334,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     ...state,
     joinChannel,
     leaveChannel,
+    retryConnection,
     toggleMute,
     toggleVideo,
     setLocalVideoContainer,
