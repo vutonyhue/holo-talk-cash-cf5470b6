@@ -17,65 +17,49 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Coins, Wallet, ArrowRight } from 'lucide-react';
+import { Coins, Wallet, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useWallet, CAMLY_COIN_CONFIG } from '@/hooks/useWallet';
 
 interface CryptoSendDialogProps {
   open: boolean;
   onClose: () => void;
-  onSend: (amount: number, currency: string) => void;
+  onSend: (amount: number, currency: string, txHash?: string) => void;
   recipientName: string;
+  recipientWallet?: string | null;
 }
 
 const CURRENCIES = [
-  { value: 'ETH', label: 'Ethereum', icon: '⟠', color: 'from-blue-500 to-purple-500' },
-  { value: 'USDT', label: 'Tether USD', icon: '₮', color: 'from-green-500 to-emerald-500' },
-  { value: 'USDC', label: 'USD Coin', icon: '◉', color: 'from-blue-400 to-blue-600' },
+  { value: 'CAMLY', label: 'CAMLY COIN', icon: '🌸', color: 'from-pink-500 to-purple-500', network: 'BSC' },
+  { value: 'BNB', label: 'BNB', icon: '🔶', color: 'from-yellow-400 to-yellow-600', network: 'BSC' },
+  { value: 'ETH', label: 'Ethereum', icon: '⟠', color: 'from-blue-500 to-purple-500', network: 'ETH' },
+  { value: 'USDT', label: 'Tether USD', icon: '₮', color: 'from-green-500 to-emerald-500', network: 'BSC' },
 ];
 
-export default function CryptoSendDialog({ open, onClose, onSend, recipientName }: CryptoSendDialogProps) {
+export default function CryptoSendDialog({ open, onClose, onSend, recipientName, recipientWallet }: CryptoSendDialogProps) {
   const { toast } = useToast();
+  const { 
+    isConnected, 
+    address, 
+    bnbBalance, 
+    camlyBalance, 
+    connect, 
+    sendBEP20Token, 
+    sendBNB,
+    shortenAddress 
+  } = useWallet();
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState('ETH');
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [walletConnected, setWalletConnected] = useState(false);
+  const [currency, setCurrency] = useState('CAMLY');
+  const [isSending, setIsSending] = useState(false);
 
   const selectedCurrency = CURRENCIES.find(c => c.value === currency);
+  const hasRecipientWallet = !!recipientWallet;
 
   const handleConnectWallet = async () => {
-    setIsConnecting(true);
-    
-    // Check if MetaMask is installed
-    if (typeof window.ethereum === 'undefined') {
-      toast({
-        title: 'MetaMask chưa được cài đặt',
-        description: 'Vui lòng cài đặt MetaMask để gửi crypto',
-        variant: 'destructive',
-      });
-      setIsConnecting(false);
-      return;
-    }
-
-    try {
-      // Request account access
-      await window.ethereum.request({ method: 'eth_requestAccounts' });
-      setWalletConnected(true);
-      toast({
-        title: 'Đã kết nối ví',
-        description: 'Ví MetaMask đã được kết nối thành công',
-      });
-    } catch (error) {
-      toast({
-        title: 'Lỗi kết nối',
-        description: 'Không thể kết nối ví MetaMask',
-        variant: 'destructive',
-      });
-    }
-    
-    setIsConnecting(false);
+    await connect();
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
       toast({
@@ -86,11 +70,43 @@ export default function CryptoSendDialog({ open, onClose, onSend, recipientName 
       return;
     }
 
-    // In production, this would trigger an actual blockchain transaction
-    onSend(numAmount, currency);
-    setAmount('');
-    setCurrency('ETH');
-    setWalletConnected(false);
+    if (!recipientWallet) {
+      toast({
+        title: 'Người nhận chưa có ví',
+        description: 'Yêu cầu người nhận thêm địa chỉ ví trong hồ sơ',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSending(true);
+    let txHash: string | null = null;
+
+    try {
+      // Execute real blockchain transaction
+      if (currency === 'CAMLY') {
+        txHash = await sendBEP20Token(recipientWallet, amount);
+      } else if (currency === 'BNB') {
+        txHash = await sendBNB(recipientWallet, amount);
+      } else {
+        // For ETH/USDT on other networks - simulate for now
+        toast({
+          title: 'Chú ý',
+          description: 'Token này sẽ được gửi dưới dạng mô phỏng. CAMLY COIN và BNB được hỗ trợ đầy đủ.',
+        });
+      }
+
+      if (txHash || !['CAMLY', 'BNB'].includes(currency)) {
+        onSend(numAmount, currency, txHash || undefined);
+        setAmount('');
+        setCurrency('CAMLY');
+        onClose();
+      }
+    } catch (error) {
+      console.error('Send error:', error);
+    }
+
+    setIsSending(false);
   };
 
   return (
@@ -109,6 +125,19 @@ export default function CryptoSendDialog({ open, onClose, onSend, recipientName 
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* No recipient wallet warning */}
+          {!hasRecipientWallet && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-destructive/10 border border-destructive/20">
+              <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-destructive">Người nhận chưa có ví</p>
+                <p className="text-muted-foreground">
+                  Yêu cầu {recipientName} thêm địa chỉ ví trong hồ sơ để nhận crypto.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Amount Input */}
           <div className="space-y-2">
             <Label htmlFor="amount">Số tiền</Label>
@@ -119,13 +148,13 @@ export default function CryptoSendDialog({ open, onClose, onSend, recipientName 
                 placeholder="0.00"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="h-14 text-2xl font-bold pr-24"
+                className="h-14 text-2xl font-bold pr-28"
                 step="0.0001"
                 min="0"
               />
               <div className="absolute right-2 top-1/2 -translate-y-1/2">
                 <Select value={currency} onValueChange={setCurrency}>
-                  <SelectTrigger className="w-20 h-10 border-0 bg-muted">
+                  <SelectTrigger className="w-24 h-10 border-0 bg-muted">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -141,6 +170,12 @@ export default function CryptoSendDialog({ open, onClose, onSend, recipientName 
                 </Select>
               </div>
             </div>
+            {/* Balance display */}
+            {isConnected && (
+              <p className="text-xs text-muted-foreground">
+                Số dư: {currency === 'CAMLY' ? camlyBalance : currency === 'BNB' ? bnbBalance : '—'} {currency}
+              </p>
+            )}
           </div>
 
           {/* Preview */}
@@ -156,34 +191,50 @@ export default function CryptoSendDialog({ open, onClose, onSend, recipientName 
               <div className="text-right">
                 <p className="text-sm opacity-80">Đến</p>
                 <p className="font-semibold">{recipientName}</p>
+                {recipientWallet && (
+                  <p className="text-xs opacity-70 font-mono">
+                    {shortenAddress(recipientWallet)}
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
           {/* Wallet Connection */}
-          {!walletConnected && (
+          {!isConnected && (
             <Button
               onClick={handleConnectWallet}
-              disabled={isConnecting}
               className="w-full h-12 gradient-primary btn-3d"
             >
               <Wallet className="w-5 h-5 mr-2" />
-              {isConnecting ? 'Đang kết nối...' : 'Kết nối ví MetaMask'}
+              Kết nối ví
             </Button>
+          )}
+
+          {/* Connected wallet info */}
+          {isConnected && address && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-green-500/10 border border-green-500/20">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-sm text-green-600">Ví: {shortenAddress(address)}</span>
+            </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="flex-1">
+          <Button variant="outline" onClick={onClose} className="flex-1" disabled={isSending}>
             Hủy
           </Button>
           <Button 
             onClick={handleSend}
-            disabled={!walletConnected || !amount}
+            disabled={!isConnected || !amount || !hasRecipientWallet || isSending}
             className="flex-1 gradient-primary btn-3d"
           >
-            <Coins className="w-4 h-4 mr-2" />
-            Gửi ngay
+            {isSending ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Coins className="w-4 h-4 mr-2" />
+            )}
+            {isSending ? 'Đang gửi...' : 'Gửi ngay'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -191,12 +242,4 @@ export default function CryptoSendDialog({ open, onClose, onSend, recipientName 
   );
 }
 
-// Add type declaration for ethereum
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-      isMetaMask?: boolean;
-    };
-  }
-}
+// Type declaration moved to useWallet.tsx
