@@ -15,9 +15,9 @@ const BNB_CHAIN_CONFIG = {
   blockExplorerUrls: ['https://bscscan.com/'],
 };
 
-// CAMLY COIN Configuration - Update contract address when available
+// CAMLY COIN Configuration on BNB Smart Chain
 export const CAMLY_COIN_CONFIG = {
-  address: '0x0000000000000000000000000000000000000000', // TODO: Replace with actual contract
+  address: '0x0910320181889feFDE0BB1Ca63962b0A8882e413',
   decimals: 18,
   symbol: 'CAMLY',
   name: 'CAMLY COIN',
