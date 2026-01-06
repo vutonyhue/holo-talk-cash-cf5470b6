@@ -13,7 +13,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useAgoraCall } from '@/hooks/useAgoraCall';
-import { IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
+import { IAgoraRTCRemoteUser, IRemoteVideoTrack } from 'agora-rtc-sdk-ng';
 
 interface VideoCallModalProps {
   open: boolean;
@@ -37,6 +37,7 @@ export default function VideoCallModal({
   const [callDuration, setCallDuration] = useState(0);
   const localVideoContainerRef = useRef<HTMLDivElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const playedTracksRef = useRef<Set<string>>(new Set());
 
   const {
     localVideoTrack,
@@ -64,15 +65,44 @@ export default function VideoCallModal({
     }
   }, [localVideoTrack]);
 
-  // Play remote videos
+  // Log remote users for debugging
+  useEffect(() => {
+    console.log('VideoCallModal: Remote users changed:', remoteUsers.length, 
+      remoteUsers.map(u => ({ 
+        uid: u.uid, 
+        hasVideo: !!u.videoTrack, 
+        hasAudio: !!u.audioTrack 
+      }))
+    );
+  }, [remoteUsers]);
+
+  // Play remote video tracks - triggered by remoteUsers changes
   useEffect(() => {
     remoteUsers.forEach((user) => {
-      const container = remoteVideoRefs.current.get(String(user.uid));
+      const uidKey = String(user.uid);
+      const container = remoteVideoRefs.current.get(uidKey);
+      
       if (container && user.videoTrack) {
-        user.videoTrack.play(container);
+        const trackKey = `${uidKey}-${user.videoTrack.getTrackId()}`;
+        if (!playedTracksRef.current.has(trackKey)) {
+          console.log('Playing remote video for user:', user.uid);
+          try {
+            user.videoTrack.play(container);
+            playedTracksRef.current.add(trackKey);
+          } catch (err) {
+            console.error('Error playing remote video:', err);
+          }
+        }
       }
     });
   }, [remoteUsers]);
+
+  // Reset played tracks when modal closes
+  useEffect(() => {
+    if (!open) {
+      playedTracksRef.current.clear();
+    }
+  }, [open]);
 
   // Track call duration
   useEffect(() => {
@@ -100,30 +130,76 @@ export default function VideoCallModal({
     onClose();
   };
 
-  const setRemoteVideoRef = useCallback((uid: string) => (el: HTMLDivElement | null) => {
-    if (el) {
-      remoteVideoRefs.current.set(uid, el);
-    } else {
-      remoteVideoRefs.current.delete(uid);
-    }
+  // Callback ref that plays video immediately when DOM element is available
+  const setRemoteVideoRef = useCallback((uid: string, videoTrack?: IRemoteVideoTrack) => {
+    return (el: HTMLDivElement | null) => {
+      if (el) {
+        remoteVideoRefs.current.set(uid, el);
+        // Play immediately when element mounts and track is available
+        if (videoTrack) {
+          const trackKey = `${uid}-${videoTrack.getTrackId()}`;
+          if (!playedTracksRef.current.has(trackKey)) {
+            console.log('Callback ref: Playing remote video for user:', uid);
+            try {
+              videoTrack.play(el);
+              playedTracksRef.current.add(trackKey);
+            } catch (err) {
+              console.error('Callback ref: Error playing remote video:', err);
+            }
+          }
+        }
+      } else {
+        remoteVideoRefs.current.delete(uid);
+      }
+    };
   }, []);
 
   if (!open) return null;
+
+  // Check if any remote user has video
+  const hasRemoteVideo = remoteUsers.some(u => u.videoTrack);
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Remote Video / Avatar Background */}
       <div className="flex-1 relative flex items-center justify-center">
         {/* If there are remote users with video, show their video */}
-        {remoteUsers.length > 0 && remoteUsers[0].videoTrack ? (
+        {remoteUsers.length > 0 && hasRemoteVideo ? (
           <div className="absolute inset-0">
-            <div 
-              ref={setRemoteVideoRef(String(remoteUsers[0].uid))}
-              className="w-full h-full"
-            />
+            {remoteUsers.filter(u => u.videoTrack).map((user) => (
+              <div 
+                key={user.uid}
+                ref={setRemoteVideoRef(String(user.uid), user.videoTrack)}
+                className="w-full h-full"
+              />
+            ))}
+          </div>
+        ) : remoteUsers.length > 0 && !hasRemoteVideo ? (
+          /* Remote user connected but camera off */
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
+            <div className="absolute inset-0 opacity-30">
+              <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
+              <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-pink-500 blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+            </div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <Avatar className="w-32 h-32 ring-4 ring-white/20 shadow-2xl mb-6">
+                <AvatarImage src={participantAvatar} />
+                <AvatarFallback className="text-4xl font-bold gradient-primary text-white">
+                  {participantName.slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <h2 className="text-2xl font-bold text-white mb-2">{participantName}</h2>
+              <span className="text-lg text-white/80">{formatDuration(callDuration)}</span>
+              <div className="flex items-center gap-2 mt-2">
+                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <p className="text-white/60 text-sm">
+                  {callType === 'video' ? 'Đã tắt camera' : 'Cuộc gọi thoại'}
+                </p>
+              </div>
+            </div>
           </div>
         ) : (
-          /* Gradient background with animated effects */
+          /* No remote users - waiting or gradient background */
           <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
             <div className="absolute inset-0 opacity-30">
               <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
@@ -192,7 +268,7 @@ export default function VideoCallModal({
             {remoteUsers.slice(1).map((user) => (
               <div 
                 key={user.uid}
-                ref={setRemoteVideoRef(String(user.uid))}
+                ref={setRemoteVideoRef(String(user.uid), user.videoTrack)}
                 className="w-32 h-24 rounded-lg overflow-hidden bg-black/50"
               />
             ))}
