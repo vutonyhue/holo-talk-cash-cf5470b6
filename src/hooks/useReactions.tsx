@@ -62,7 +62,21 @@ export function useReactions(conversationId: string | null) {
             setReactions(prev => {
               const updated = new Map(prev);
               const existing = updated.get(newReaction.message_id) || [];
-              updated.set(newReaction.message_id, [...existing, newReaction]);
+              
+              // Check if already exists (from optimistic update)
+              const existingIndex = existing.findIndex(r => 
+                r.id === newReaction.id || 
+                (r.user_id === newReaction.user_id && r.emoji === newReaction.emoji)
+              );
+              
+              if (existingIndex >= 0) {
+                // Replace temp with real reaction
+                const newExisting = [...existing];
+                newExisting[existingIndex] = newReaction;
+                updated.set(newReaction.message_id, newExisting);
+              } else {
+                updated.set(newReaction.message_id, [...existing, newReaction]);
+              }
               return updated;
             });
           } else if (payload.eventType === 'DELETE') {
@@ -95,7 +109,15 @@ export function useReactions(conversationId: string | null) {
     );
 
     if (existingReaction) {
-      // Remove reaction
+      // Optimistic update - remove immediately
+      setReactions(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(messageId) || [];
+        updated.set(messageId, existing.filter(r => r.id !== existingReaction.id));
+        return updated;
+      });
+
+      // Then delete from database
       const { error } = await supabase
         .from('message_reactions')
         .delete()
@@ -103,9 +125,27 @@ export function useReactions(conversationId: string | null) {
 
       if (error) {
         console.error('Error removing reaction:', error);
+        // Rollback on error
+        fetchReactions([messageId]);
       }
     } else {
-      // Add reaction
+      // Optimistic update - add immediately with temp ID
+      const tempReaction: Reaction = {
+        id: `temp-${Date.now()}`,
+        message_id: messageId,
+        user_id: user.id,
+        emoji,
+        created_at: new Date().toISOString(),
+      };
+      
+      setReactions(prev => {
+        const updated = new Map(prev);
+        const existing = updated.get(messageId) || [];
+        updated.set(messageId, [...existing, tempReaction]);
+        return updated;
+      });
+
+      // Then insert to database
       const { error } = await supabase
         .from('message_reactions')
         .insert({
@@ -116,6 +156,13 @@ export function useReactions(conversationId: string | null) {
 
       if (error) {
         console.error('Error adding reaction:', error);
+        // Rollback on error
+        setReactions(prev => {
+          const updated = new Map(prev);
+          const existing = updated.get(messageId) || [];
+          updated.set(messageId, existing.filter(r => r.id !== tempReaction.id));
+          return updated;
+        });
       }
     }
   };
