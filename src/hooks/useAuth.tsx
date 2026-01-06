@@ -90,7 +90,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      // Bỏ qua lỗi nếu session đã hết hạn hoặc không tồn tại
+      console.log('Sign out error (ignored):', error);
+    }
+    
+    // LUÔN clear local state bất kể kết quả từ server
+    setUser(null);
+    setSession(null);
     setProfile(null);
   };
 
