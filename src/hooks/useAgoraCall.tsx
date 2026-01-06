@@ -7,6 +7,9 @@ import AgoraRTC, {
 } from 'agora-rtc-sdk-ng';
 import { supabase } from '@/integrations/supabase/client';
 
+// Cloudflare Worker URL for Agora token generation
+const AGORA_TOKEN_WORKER_URL = 'https://agora-token-worker-v2.hieu-le-010.workers.dev';
+
 interface UseAgoraCallProps {
   channelName: string;
   uid?: number;
@@ -114,25 +117,41 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     });
   }, []);
 
-  // Fetch token from edge function
+  // Fetch token from Cloudflare Worker
   const fetchToken = useCallback(async () => {
     try {
       console.log('Fetching Agora token for channel:', channelName);
       
-      // Use uid = 0 to let Agora server assign a unique ID
-      const { data, error } = await supabase.functions.invoke('agora-token', {
-        body: { channelName, uid: 0, role: 1 },
+      // Get Supabase access token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Bạn cần đăng nhập để thực hiện cuộc gọi');
+      }
+
+      // Call Cloudflare Worker
+      const response = await fetch(AGORA_TOKEN_WORKER_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ channelName, uid: 0, role: 1 }),
       });
 
-      if (error) {
-        console.error('Error fetching token:', error);
-        throw new Error(error.message || 'Không thể lấy token từ server');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        
+        if (response.status === 401) {
+          throw new Error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        }
+        if (response.status === 429) {
+          throw new Error('Quá nhiều yêu cầu. Vui lòng thử lại sau.');
+        }
+        
+        throw new Error(errorData.error || 'Không thể lấy token từ server');
       }
 
-      if (data.error) {
-        console.error('Token API error:', data.error);
-        throw new Error(data.error);
-      }
+      const data = await response.json();
 
       console.log('Token fetched:', {
         appIdPrefix: data.appId?.substring(0, 8),
