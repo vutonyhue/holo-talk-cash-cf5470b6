@@ -41,12 +41,26 @@ export function useMessages(conversationId: string | null) {
     const profileMap = new Map<string, Profile>();
     profiles?.forEach(p => profileMap.set(p.id, p as Profile));
 
-    const messagesWithSenders = (data || []).map(m => ({
-      ...m,
-      sender: m.sender_id ? profileMap.get(m.sender_id) : undefined,
-    })) as Message[];
+    // Create a map of all messages for reply lookups
+    const messageMap = new Map<string, Message>();
+    (data || []).forEach(m => {
+      const msg = {
+        ...m,
+        sender: m.sender_id ? profileMap.get(m.sender_id) : undefined,
+      } as Message;
+      messageMap.set(m.id, msg);
+    });
 
-    setMessages(messagesWithSenders);
+    // Attach reply_to references
+    const messagesWithReplies = (data || []).map(m => {
+      const msg = messageMap.get(m.id)!;
+      if (m.reply_to_id && messageMap.has(m.reply_to_id)) {
+        msg.reply_to = messageMap.get(m.reply_to_id);
+      }
+      return msg;
+    });
+
+    setMessages(messagesWithReplies);
     setLoading(false);
   }, [conversationId, user]);
 
@@ -92,7 +106,7 @@ export function useMessages(conversationId: string | null) {
     };
   }, [conversationId]);
 
-  const sendMessage = async (content: string, messageType = 'text', metadata = {}) => {
+  const sendMessage = async (content: string, messageType = 'text', metadata = {}, replyToId?: string) => {
     if (!user || !conversationId) return { error: new Error('Not ready') };
 
     const { data, error } = await supabase
@@ -103,6 +117,7 @@ export function useMessages(conversationId: string | null) {
         content,
         message_type: messageType,
         metadata,
+        reply_to_id: replyToId || null,
       })
       .select()
       .single();

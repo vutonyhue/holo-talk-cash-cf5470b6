@@ -41,6 +41,8 @@ export interface Message {
   created_at: string;
   updated_at: string;
   sender?: Profile;
+  reply_to_id?: string | null;
+  reply_to?: Message;
 }
 
 export interface CryptoTransaction {

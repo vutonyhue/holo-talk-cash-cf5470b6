@@ -3,16 +3,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Coins, CheckCheck, FileIcon, Download } from 'lucide-react';
+import { Coins, CheckCheck, FileIcon, Download, Reply } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface MessageBubbleProps {
   message: Message;
   onImageClick?: (src: string, alt: string) => void;
   isRead?: boolean;
   showReadStatus?: boolean;
+  onReply?: (message: Message) => void;
 }
 
-export default function MessageBubble({ message, onImageClick, isRead = false, showReadStatus = true }: MessageBubbleProps) {
+export default function MessageBubble({ message, onImageClick, isRead = false, showReadStatus = true, onReply }: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
 
@@ -20,6 +22,37 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const getReplyPreview = (msg: Message) => {
+    if (msg.message_type === 'image') return '📷 Hình ảnh';
+    if (msg.message_type === 'file') return '📎 File';
+    if (msg.message_type === 'crypto') return '💰 Crypto';
+    return msg.content?.slice(0, 50) + (msg.content && msg.content.length > 50 ? '...' : '');
+  };
+
+  const renderReplyPreview = () => {
+    if (!message.reply_to) return null;
+    
+    const repliedTo = message.reply_to;
+    const isMyReply = repliedTo.sender_id === user?.id;
+    
+    return (
+      <div 
+        className={`mb-1.5 px-3 py-2 rounded-xl border-l-2 ${
+          isMine 
+            ? 'bg-white/10 border-white/40' 
+            : 'bg-muted/50 border-primary/40'
+        }`}
+      >
+        <p className={`text-xs font-medium ${isMine ? 'text-white/80' : 'text-primary'}`}>
+          {isMyReply ? 'Bạn' : repliedTo.sender?.display_name || 'Người dùng'}
+        </p>
+        <p className={`text-xs truncate ${isMine ? 'text-white/60' : 'text-muted-foreground'}`}>
+          {getReplyPreview(repliedTo)}
+        </p>
+      </div>
+    );
   };
 
   const renderContent = () => {
@@ -33,7 +66,12 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
       return (
         <div className={`rounded-2xl overflow-hidden max-w-xs ${
           isMine ? 'rounded-br-md' : 'rounded-bl-md'
-        } ${caption ? (isMine ? 'bg-primary' : 'bg-card shadow-card') : ''}`}>
+        } ${caption || message.reply_to ? (isMine ? 'bg-primary' : 'bg-card shadow-card') : ''}`}>
+          {message.reply_to && (
+            <div className="p-2 pb-0">
+              {renderReplyPreview()}
+            </div>
+          )}
           <img 
             src={file_url} 
             alt={file_name}
@@ -58,27 +96,30 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
       };
       
       return (
-        <a 
-          href={file_url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className={`flex items-center gap-3 px-4 py-3 rounded-2xl hover:opacity-90 transition-opacity ${
-            isMine 
-              ? 'gradient-primary text-primary-foreground rounded-br-md' 
-              : 'bg-card shadow-card rounded-bl-md'
-          }`}
-        >
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            isMine ? 'bg-white/20' : 'bg-muted'
-          }`}>
-            <FileIcon className="w-5 h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium truncate text-sm">{file_name}</p>
-            <p className="text-xs opacity-70">{formatFileSize(file_size)}</p>
-          </div>
-          <Download className="w-5 h-5 opacity-70" />
-        </a>
+        <div className={`rounded-2xl ${
+          isMine 
+            ? 'gradient-primary text-primary-foreground rounded-br-md' 
+            : 'bg-card shadow-card rounded-bl-md'
+        }`}>
+          {renderReplyPreview()}
+          <a 
+            href={file_url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-4 py-3 hover:opacity-90 transition-opacity"
+          >
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              isMine ? 'bg-white/20' : 'bg-muted'
+            }`}>
+              <FileIcon className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate text-sm">{file_name}</p>
+              <p className="text-xs opacity-70">{formatFileSize(file_size)}</p>
+            </div>
+            <Download className="w-5 h-5 opacity-70" />
+          </a>
+        </div>
       );
     }
 
@@ -86,19 +127,26 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
     if (message.message_type === 'crypto') {
       const { amount, currency } = message.metadata as { amount: number; currency: string };
       return (
-        <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl ${
+        <div className={`rounded-2xl ${
           isMine 
             ? 'gradient-warm text-white' 
             : 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
         }`}>
-          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-            <Coins className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="font-bold text-lg">{amount} {currency}</p>
-            <p className="text-sm opacity-80">
-              {isMine ? 'Đã gửi' : 'Đã nhận'}
-            </p>
+          {message.reply_to && (
+            <div className="px-4 pt-3">
+              {renderReplyPreview()}
+            </div>
+          )}
+          <div className="flex items-center gap-2 px-4 py-3">
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <Coins className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-lg">{amount} {currency}</p>
+              <p className="text-sm opacity-80">
+                {isMine ? 'Đã gửi' : 'Đã nhận'}
+              </p>
+            </div>
           </div>
         </div>
       );
@@ -111,6 +159,7 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
           ? 'gradient-primary text-primary-foreground rounded-br-md' 
           : 'bg-card shadow-card rounded-bl-md'
       }`}>
+        {renderReplyPreview()}
         <p className="text-[15px] leading-relaxed whitespace-pre-wrap break-words">
           {message.content}
         </p>
@@ -119,7 +168,7 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
   };
 
   return (
-    <div className={`flex gap-2 mb-3 animate-bubble-in ${isMine ? 'flex-row-reverse' : ''}`}>
+    <div className={`group flex gap-2 mb-3 animate-bubble-in ${isMine ? 'flex-row-reverse' : ''}`}>
       {!isMine && (
         <Avatar className="w-8 h-8 mt-1">
           <AvatarImage src={message.sender?.avatar_url || undefined} />
@@ -136,7 +185,20 @@ export default function MessageBubble({ message, onImageClick, isRead = false, s
           </span>
         )}
         
-        {renderContent()}
+        <div className={`flex items-center gap-1 ${isMine ? 'flex-row-reverse' : ''}`}>
+          {renderContent()}
+          
+          {onReply && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-7 h-7 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => onReply(message)}
+            >
+              <Reply className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
         
         <div className={`flex items-center gap-1 mt-1 ${isMine ? 'mr-1' : 'ml-1'}`}>
           <span className="text-[11px] text-muted-foreground">
