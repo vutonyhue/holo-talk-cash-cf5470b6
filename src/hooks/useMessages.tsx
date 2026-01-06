@@ -68,7 +68,7 @@ export function useMessages(conversationId: string | null) {
     fetchMessages();
   }, [fetchMessages]);
 
-  // Subscribe to realtime messages
+  // Subscribe to realtime messages (INSERT and UPDATE)
   useEffect(() => {
     if (!conversationId) return;
 
@@ -97,6 +97,27 @@ export function useMessages(conversationId: string | null) {
           }
 
           setMessages(prev => [...prev, newMessage]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const updatedMessage = payload.new as Message;
+          
+          // Update message in state
+          setMessages(prev => 
+            prev.map(m => 
+              m.id === updatedMessage.id 
+                ? { ...m, ...updatedMessage }
+                : m
+            )
+          );
         }
       )
       .subscribe();
