@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
@@ -8,10 +8,12 @@ import {
   VideoOff, 
   PhoneOff,
   Users,
-  Maximize,
   ScreenShare,
-  MessageCircle
+  MessageCircle,
+  Loader2
 } from 'lucide-react';
+import { useAgoraCall } from '@/hooks/useAgoraCall';
+import { IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
 
 interface VideoCallModalProps {
   open: boolean;
@@ -20,6 +22,7 @@ interface VideoCallModalProps {
   participantName: string;
   participantAvatar?: string;
   isGroup?: boolean;
+  channelName?: string;
 }
 
 export default function VideoCallModal({
@@ -29,67 +32,60 @@ export default function VideoCallModal({
   participantName,
   participantAvatar,
   isGroup = false,
+  channelName,
 }: VideoCallModalProps) {
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(callType === 'voice');
   const [callDuration, setCallDuration] = useState(0);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const localVideoContainerRef = useRef<HTMLDivElement>(null);
+  const remoteVideoRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
+  const {
+    localVideoTrack,
+    remoteUsers,
+    isJoined,
+    isMuted,
+    isVideoOff,
+    isConnecting,
+    error,
+    toggleMute,
+    toggleVideo,
+    leaveChannel,
+    setLocalVideoContainer,
+  } = useAgoraCall({
+    channelName: channelName || '',
+    enabled: open && !!channelName,
+    isVideoCall: callType === 'video',
+  });
+
+  // Set up local video container
   useEffect(() => {
-    if (open && callType === 'video') {
-      startLocalVideo();
+    if (localVideoContainerRef.current && localVideoTrack) {
+      localVideoTrack.play(localVideoContainerRef.current);
     }
+  }, [localVideoTrack]);
 
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, [open, callType]);
-
+  // Play remote videos
   useEffect(() => {
-    if (!open) return;
+    remoteUsers.forEach((user) => {
+      const container = remoteVideoRefs.current.get(String(user.uid));
+      if (container && user.videoTrack) {
+        user.videoTrack.play(container);
+      }
+    });
+  }, [remoteUsers]);
+
+  // Track call duration
+  useEffect(() => {
+    if (!open || !isJoined) {
+      setCallDuration(0);
+      return;
+    }
 
     const interval = setInterval(() => {
       setCallDuration(prev => prev + 1);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [open]);
-
-  const startLocalVideo = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      setStream(mediaStream);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = mediaStream;
-      }
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-    }
-  };
-
-  const toggleMute = () => {
-    if (stream) {
-      stream.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsMuted(!isMuted);
-    }
-  };
-
-  const toggleVideo = () => {
-    if (stream) {
-      stream.getVideoTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsVideoOff(!isVideoOff);
-    }
-  };
+  }, [open, isJoined]);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -97,14 +93,19 @@ export default function VideoCallModal({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleEndCall = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-    }
-    setStream(null);
+  const handleEndCall = async () => {
+    await leaveChannel();
     setCallDuration(0);
     onClose();
   };
+
+  const setRemoteVideoRef = useCallback((uid: string) => (el: HTMLDivElement | null) => {
+    if (el) {
+      remoteVideoRefs.current.set(uid, el);
+    } else {
+      remoteVideoRefs.current.delete(uid);
+    }
+  }, []);
 
   if (!open) return null;
 
@@ -112,49 +113,87 @@ export default function VideoCallModal({
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Remote Video / Avatar Background */}
       <div className="flex-1 relative flex items-center justify-center">
-        {/* Gradient background with animated effects */}
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
-          <div className="absolute inset-0 opacity-30">
-            <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
-            <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-pink-500 blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-cyan-500 blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+        {/* If there are remote users with video, show their video */}
+        {remoteUsers.length > 0 && remoteUsers[0].videoTrack ? (
+          <div className="absolute inset-0">
+            <div 
+              ref={setRemoteVideoRef(String(remoteUsers[0].uid))}
+              className="w-full h-full"
+            />
           </div>
-        </div>
+        ) : (
+          /* Gradient background with animated effects */
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
+            <div className="absolute inset-0 opacity-30">
+              <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
+              <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-pink-500 blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-cyan-500 blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+            </div>
+          </div>
+        )}
 
-        {/* Participant info */}
-        <div className="relative z-10 flex flex-col items-center">
-          <Avatar className="w-32 h-32 ring-4 ring-white/20 shadow-2xl mb-6">
-            <AvatarImage src={participantAvatar} />
-            <AvatarFallback className="text-4xl font-bold gradient-primary text-white">
-              {participantName.slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          
-          <h2 className="text-2xl font-bold text-white mb-2">{participantName}</h2>
-          
-          <div className="flex items-center gap-2 text-white/80">
-            {isGroup && <Users className="w-4 h-4" />}
-            <span className="text-lg">{formatDuration(callDuration)}</span>
+        {/* Participant info (shown when no remote video) */}
+        {remoteUsers.length === 0 || !remoteUsers[0].videoTrack ? (
+          <div className="relative z-10 flex flex-col items-center">
+            <Avatar className="w-32 h-32 ring-4 ring-white/20 shadow-2xl mb-6">
+              <AvatarImage src={participantAvatar} />
+              <AvatarFallback className="text-4xl font-bold gradient-primary text-white">
+                {participantName.slice(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            
+            <h2 className="text-2xl font-bold text-white mb-2">{participantName}</h2>
+            
+            <div className="flex items-center gap-2 text-white/80">
+              {isGroup && <Users className="w-4 h-4" />}
+              <span className="text-lg">{formatDuration(callDuration)}</span>
+            </div>
+            
+            {/* Status indicator */}
+            <div className="mt-4 flex items-center gap-2">
+              {isConnecting ? (
+                <>
+                  <Loader2 className="w-4 h-4 text-white animate-spin" />
+                  <span className="text-white/60 text-sm">Đang kết nối...</span>
+                </>
+              ) : isJoined ? (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <span className="text-white/60 text-sm">
+                    {remoteUsers.length > 0 ? 'Đã kết nối' : 'Đang chờ người khác...'}
+                  </span>
+                </>
+              ) : error ? (
+                <span className="text-red-400 text-sm">{error}</span>
+              ) : (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                  <span className="text-white/60 text-sm">Đang gọi...</span>
+                </>
+              )}
+            </div>
           </div>
-          
-          {/* Calling indicator */}
-          <div className="mt-4 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-white/60 text-sm">Đang gọi...</span>
+        ) : null}
+
+        {/* Additional remote users (for group calls) */}
+        {remoteUsers.length > 1 && (
+          <div className="absolute top-4 right-4 flex flex-col gap-2">
+            {remoteUsers.slice(1).map((user) => (
+              <div 
+                key={user.uid}
+                ref={setRemoteVideoRef(String(user.uid))}
+                className="w-32 h-24 rounded-lg overflow-hidden bg-black/50"
+              />
+            ))}
           </div>
-        </div>
+        )}
 
         {/* Local video (picture-in-picture) */}
         {callType === 'video' && !isVideoOff && (
-          <div className="absolute bottom-24 right-6 w-40 h-56 rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/20">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-            />
-          </div>
+          <div 
+            ref={localVideoContainerRef}
+            className="absolute bottom-24 right-6 w-40 h-56 rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/20 bg-black"
+          />
         )}
       </div>
 

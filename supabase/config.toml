@@ -1,1 +1,4 @@
 project_id = "dgeadmmbkvcsgizsnbpi"
+
+[functions.agora-token]
+verify_jwt = false
