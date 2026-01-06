@@ -210,104 +210,102 @@ export default function TextInputContextMenu({
   };
 
   return (
-    <ContextMenu>
-      <ContextMenuContent className="w-56 bg-popover border border-border shadow-lg z-50">
-        <ContextMenuItem onClick={handleUndo} className="cursor-pointer">
-          <Undo className="mr-2 h-4 w-4" />
-          Hoàn tác
-          <ContextMenuShortcut>Ctrl+Z</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handleRedo} className="cursor-pointer">
-          <Redo className="mr-2 h-4 w-4" />
-          Làm lại
-          <ContextMenuShortcut>Ctrl+Y</ContextMenuShortcut>
-        </ContextMenuItem>
+    <ContextMenuContent className="w-56 bg-popover border border-border shadow-lg z-50">
+      <ContextMenuItem onClick={handleUndo} className="cursor-pointer">
+        <Undo className="mr-2 h-4 w-4" />
+        Hoàn tác
+        <ContextMenuShortcut>Ctrl+Z</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleRedo} className="cursor-pointer">
+        <Redo className="mr-2 h-4 w-4" />
+        Làm lại
+        <ContextMenuShortcut>Ctrl+Y</ContextMenuShortcut>
+      </ContextMenuItem>
 
-        <ContextMenuSeparator />
+      <ContextMenuSeparator />
 
-        <ContextMenuItem onClick={handleCut} className="cursor-pointer">
-          <Scissors className="mr-2 h-4 w-4" />
-          Cắt
-          <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handleCopy} className="cursor-pointer">
-          <Copy className="mr-2 h-4 w-4" />
-          Sao chép
-          <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handlePaste} className="cursor-pointer">
-          <ClipboardPaste className="mr-2 h-4 w-4" />
-          Dán
-          <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handleDelete} className="cursor-pointer">
-          <Trash2 className="mr-2 h-4 w-4" />
-          Xóa
-        </ContextMenuItem>
+      <ContextMenuItem onClick={handleCut} className="cursor-pointer">
+        <Scissors className="mr-2 h-4 w-4" />
+        Cắt
+        <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleCopy} className="cursor-pointer">
+        <Copy className="mr-2 h-4 w-4" />
+        Sao chép
+        <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handlePaste} className="cursor-pointer">
+        <ClipboardPaste className="mr-2 h-4 w-4" />
+        Dán
+        <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleDelete} className="cursor-pointer">
+        <Trash2 className="mr-2 h-4 w-4" />
+        Xóa
+      </ContextMenuItem>
 
-        <ContextMenuSeparator />
+      <ContextMenuSeparator />
 
-        <ContextMenuSub>
-          <ContextMenuSubTrigger className="cursor-pointer">
-            <Type className="mr-2 h-4 w-4" />
-            Định dạng
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-48 bg-popover border border-border">
-            <ContextMenuItem onClick={() => formatText('bold')} className="cursor-pointer">
-              <Bold className="mr-2 h-4 w-4" />
-              In đậm
-              <ContextMenuShortcut>Ctrl+B</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => formatText('italic')} className="cursor-pointer">
-              <Italic className="mr-2 h-4 w-4" />
-              In nghiêng
-              <ContextMenuShortcut>Ctrl+I</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => formatText('underline')} className="cursor-pointer">
-              <Underline className="mr-2 h-4 w-4" />
-              Gạch chân
-              <ContextMenuShortcut>Ctrl+U</ContextMenuShortcut>
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => formatText('strikethrough')} className="cursor-pointer">
-              <Strikethrough className="mr-2 h-4 w-4" />
-              Gạch ngang
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => formatText('quote')} className="cursor-pointer">
-              <Quote className="mr-2 h-4 w-4" />
-              Trích dẫn
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => formatText('code')} className="cursor-pointer">
-              <Code className="mr-2 h-4 w-4" />
-              Monospace
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => formatText('spoiler')} className="cursor-pointer">
-              <EyeOff className="mr-2 h-4 w-4" />
-              Spoiler
-            </ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger className="cursor-pointer">
+          <Type className="mr-2 h-4 w-4" />
+          Định dạng
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-48 bg-popover border border-border">
+          <ContextMenuItem onClick={() => formatText('bold')} className="cursor-pointer">
+            <Bold className="mr-2 h-4 w-4" />
+            In đậm
+            <ContextMenuShortcut>Ctrl+B</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => formatText('italic')} className="cursor-pointer">
+            <Italic className="mr-2 h-4 w-4" />
+            In nghiêng
+            <ContextMenuShortcut>Ctrl+I</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => formatText('underline')} className="cursor-pointer">
+            <Underline className="mr-2 h-4 w-4" />
+            Gạch chân
+            <ContextMenuShortcut>Ctrl+U</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => formatText('strikethrough')} className="cursor-pointer">
+            <Strikethrough className="mr-2 h-4 w-4" />
+            Gạch ngang
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => formatText('quote')} className="cursor-pointer">
+            <Quote className="mr-2 h-4 w-4" />
+            Trích dẫn
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => formatText('code')} className="cursor-pointer">
+            <Code className="mr-2 h-4 w-4" />
+            Monospace
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => formatText('spoiler')} className="cursor-pointer">
+            <EyeOff className="mr-2 h-4 w-4" />
+            Spoiler
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
 
-        <ContextMenuSeparator />
+      <ContextMenuSeparator />
 
-        <ContextMenuItem onClick={handleCreateLink} className="cursor-pointer">
-          <Link className="mr-2 h-4 w-4" />
-          Tạo liên kết
-          <ContextMenuShortcut>Ctrl+K</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handleClearFormatting} className="cursor-pointer">
-          <RemoveFormatting className="mr-2 h-4 w-4" />
-          Xóa định dạng
-        </ContextMenuItem>
+      <ContextMenuItem onClick={handleCreateLink} className="cursor-pointer">
+        <Link className="mr-2 h-4 w-4" />
+        Tạo liên kết
+        <ContextMenuShortcut>Ctrl+K</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleClearFormatting} className="cursor-pointer">
+        <RemoveFormatting className="mr-2 h-4 w-4" />
+        Xóa định dạng
+      </ContextMenuItem>
 
-        <ContextMenuSeparator />
+      <ContextMenuSeparator />
 
-        <ContextMenuItem onClick={handleSelectAll} className="cursor-pointer">
-          <FileText className="mr-2 h-4 w-4" />
-          Chọn tất cả
-          <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+      <ContextMenuItem onClick={handleSelectAll} className="cursor-pointer">
+        <FileText className="mr-2 h-4 w-4" />
+        Chọn tất cả
+        <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
