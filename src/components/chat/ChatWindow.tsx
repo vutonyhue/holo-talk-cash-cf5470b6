@@ -12,7 +12,9 @@ import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import ImageLightbox, { LightboxImage } from './ImageLightbox';
+import ForwardMessageDialog from './ForwardMessageDialog';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   Phone, 
   Video, 
@@ -35,12 +37,13 @@ import {
 
 interface ChatWindowProps {
   conversation: Conversation;
+  conversations: Conversation[];
   onVideoCall: () => void;
   onVoiceCall: () => void;
   onBack?: () => void;
 }
 
-export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
+export default function ChatWindow({ conversation, conversations, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
   const { profile, user } = useAuth();
   const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage } = useMessages(conversation.id);
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
@@ -56,6 +59,7 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
   const [showPreview, setShowPreview] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,7 +144,42 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
   };
 
   const handleForward = (message: Message) => {
-    toast.info('Tính năng chuyển tiếp đang phát triển');
+    setForwardingMessage(message);
+  };
+
+  const handleForwardToConversations = async (conversationIds: string[], message: Message) => {
+    if (!user) return;
+
+    try {
+      // Forward message to each selected conversation
+      for (const convId of conversationIds) {
+        let content = message.content || '';
+        let metadata = { ...message.metadata, forwarded: true, original_sender: message.sender?.display_name };
+
+        // Handle different message types
+        if (message.message_type === 'image' || message.message_type === 'file') {
+          content = message.content || (message.message_type === 'image' ? 'Đã chuyển tiếp hình ảnh' : 'Đã chuyển tiếp file');
+        } else if (message.message_type === 'crypto') {
+          content = `Đã chuyển tiếp: ${message.content}`;
+          metadata = { forwarded: true, original_sender: message.sender?.display_name };
+        }
+
+        await supabase
+          .from('messages')
+          .insert({
+            conversation_id: convId,
+            sender_id: user.id,
+            content,
+            message_type: message.message_type,
+            metadata,
+          });
+      }
+
+      toast.success(`Đã chuyển tiếp đến ${conversationIds.length} cuộc trò chuyện`);
+    } catch (error) {
+      console.error('Forward error:', error);
+      toast.error('Không thể chuyển tiếp tin nhắn');
+    }
   };
 
   const handleDelete = (message: Message) => {
@@ -464,6 +503,15 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
           onIndexChange={setLightboxIndex}
         />
       )}
+
+      {/* Forward Message Dialog */}
+      <ForwardMessageDialog
+        open={!!forwardingMessage}
+        onClose={() => setForwardingMessage(null)}
+        message={forwardingMessage}
+        conversations={conversations.filter(c => c.id !== conversation.id)}
+        onForward={handleForwardToConversations}
+      />
     </div>
   );
 }
