@@ -6,12 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
+import { useWallet } from "@/hooks/useWallet";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, Loader2, Save, User, Wallet } from "lucide-react";
+import { ArrowLeft, Camera, Loader2, Save, User, Wallet, Copy, ExternalLink, CheckCircle } from "lucide-react";
 
 const Profile = () => {
   const { user, profile, loading, updateProfile } = useAuth();
+  const { isConnected, address, bnbBalance, camlyBalance, connect, disconnect, shortenAddress } = useWallet();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -208,18 +210,84 @@ const Profile = () => {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="walletAddress" className="text-white flex items-center gap-2">
+              {/* Wallet Section */}
+              <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/10">
+                <Label className="text-white flex items-center gap-2">
                   <Wallet className="w-4 h-4" />
-                  Địa chỉ ví (ETH)
+                  Ví của bạn
                 </Label>
-                <Input
-                  id="walletAddress"
-                  value={walletAddress}
-                  onChange={(e) => setWalletAddress(e.target.value)}
-                  placeholder="0x..."
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/50 font-mono text-sm"
-                />
+                
+                {isConnected && address ? (
+                  <div className="space-y-3">
+                    {/* Connected status */}
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                      <span className="text-green-400 text-sm">Đã kết nối</span>
+                    </div>
+                    
+                    {/* Wallet address */}
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={address}
+                        readOnly
+                        className="bg-white/5 border-white/10 text-white font-mono text-sm flex-1"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-white/70 hover:text-white"
+                        onClick={() => {
+                          navigator.clipboard.writeText(address);
+                          toast.success("Đã sao chép địa chỉ ví");
+                        }}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-white/70 hover:text-white"
+                        onClick={() => window.open(`https://bscscan.com/address/${address}`, '_blank')}
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </div>
+
+                    {/* Balances */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                        <p className="text-xs text-white/60">BNB</p>
+                        <p className="text-lg font-bold text-yellow-400">{bnbBalance}</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
+                        <p className="text-xs text-white/60">CAMLY</p>
+                        <p className="text-lg font-bold text-pink-400">{camlyBalance}</p>
+                      </div>
+                    </div>
+
+                    {/* Disconnect button */}
+                    <Button
+                      variant="outline"
+                      className="w-full border-white/20 text-white hover:bg-white/10"
+                      onClick={disconnect}
+                    >
+                      Ngắt kết nối ví
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-white/60 text-sm">
+                      Kết nối ví để gửi và nhận CAMLY COIN
+                    </p>
+                    <Button
+                      onClick={connect}
+                      className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold hover:from-yellow-500 hover:to-orange-600"
+                    >
+                      <Wallet className="w-4 h-4 mr-2" />
+                      Kết nối ví
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

@@ -226,9 +226,9 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     // Shift+Enter sẽ tự động xuống dòng
   };
 
-  const handleSendCrypto = async (amount: number, currency: string) => {
+  const handleSendCrypto = async (amount: number, currency: string, txHash?: string) => {
     if (!otherMember) return;
-    await sendCryptoMessage(otherMember.user_id, amount, currency);
+    await sendCryptoMessage(otherMember.user_id, amount, currency, txHash);
     setShowCryptoDialog(false);
   };
 
@@ -554,6 +554,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
         onClose={() => setShowCryptoDialog(false)}
         onSend={handleSendCrypto}
         recipientName={chatName || ''}
+        recipientWallet={otherMember?.profile?.wallet_address}
       />
 
       {/* Image Preview Dialog */}
