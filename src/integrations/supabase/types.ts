@@ -259,7 +259,9 @@ export type Database = {
           content: string | null
           conversation_id: string | null
           created_at: string | null
+          deleted_at: string | null
           id: string
+          is_deleted: boolean | null
           message_type: string | null
           metadata: Json | null
           reply_to_id: string | null
@@ -270,7 +272,9 @@ export type Database = {
           content?: string | null
           conversation_id?: string | null
           created_at?: string | null
+          deleted_at?: string | null
           id?: string
+          is_deleted?: boolean | null
           message_type?: string | null
           metadata?: Json | null
           reply_to_id?: string | null
@@ -281,7 +285,9 @@ export type Database = {
           content?: string | null
           conversation_id?: string | null
           created_at?: string | null
+          deleted_at?: string | null
           id?: string
+          is_deleted?: boolean | null
           message_type?: string | null
           metadata?: Json | null
           reply_to_id?: string | null

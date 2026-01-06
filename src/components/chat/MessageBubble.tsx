@@ -79,6 +79,46 @@ export default function MessageBubble({
     );
   };
 
+  // Check if message is deleted
+  if (message.is_deleted) {
+    return (
+      <div className={`group flex gap-2 mb-3 animate-bubble-in ${isMine ? 'flex-row-reverse' : ''}`}>
+        {!isMine && (
+          <Avatar className="w-8 h-8 mt-1">
+            <AvatarImage src={message.sender?.avatar_url || undefined} />
+            <AvatarFallback className="gradient-accent text-white text-xs font-semibold">
+              {message.sender?.display_name?.slice(0, 2).toUpperCase() || '?'}
+            </AvatarFallback>
+          </Avatar>
+        )}
+        
+        <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
+          {!isMine && (
+            <span className="text-xs text-muted-foreground font-medium mb-1 ml-1">
+              {message.sender?.display_name}
+            </span>
+          )}
+          
+          <div className={`px-4 py-2.5 rounded-2xl max-w-xs md:max-w-md ${
+            isMine 
+              ? 'bg-muted/50 border border-border rounded-br-md' 
+              : 'bg-muted/50 border border-border rounded-bl-md'
+          }`}>
+            <p className="text-sm italic text-muted-foreground">
+              Tin nhắn đã được thu hồi
+            </p>
+          </div>
+          
+          <div className={`flex items-center gap-1 mt-1 ${isMine ? 'mr-1' : 'ml-1'}`}>
+            <span className="text-[11px] text-muted-foreground">
+              {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const renderContent = () => {
     // Image message
     if (message.message_type === 'image') {

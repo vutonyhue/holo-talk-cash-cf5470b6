@@ -200,12 +200,39 @@ export function useMessages(conversationId: string | null) {
     });
   };
 
+  const deleteMessage = async (messageId: string) => {
+    if (!user) return { error: new Error('Not authenticated') };
+
+    const { error } = await supabase
+      .from('messages')
+      .update({ 
+        is_deleted: true, 
+        deleted_at: new Date().toISOString() 
+      })
+      .eq('id', messageId)
+      .eq('sender_id', user.id);
+
+    if (error) return { error };
+
+    // Optimistic update
+    setMessages(prev => 
+      prev.map(m => 
+        m.id === messageId 
+          ? { ...m, is_deleted: true, deleted_at: new Date().toISOString() } 
+          : m
+      )
+    );
+
+    return { error: null };
+  };
+
   return {
     messages,
     loading,
     sendMessage,
     sendCryptoMessage,
     sendImageMessage,
+    deleteMessage,
     fetchMessages,
   };
 }
