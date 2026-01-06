@@ -40,6 +40,17 @@ const Profile = () => {
     }
   }, [profile]);
 
+  // Auto-fill wallet address when connecting MetaMask
+  useEffect(() => {
+    if (isConnected && address && !walletAddress) {
+      setWalletAddress(address);
+    }
+  }, [isConnected, address]);
+
+  const isValidWalletAddress = (addr: string) => {
+    return /^0x[a-fA-F0-9]{40}$/.test(addr);
+  };
+
   const handleAvatarClick = () => {
     fileInputRef.current?.click();
   };
@@ -212,102 +223,123 @@ const Profile = () => {
               </div>
 
               {/* Wallet Section */}
-              <div className="space-y-3 p-4 rounded-xl bg-white/5 border border-white/10">
+              <div className="space-y-4 p-4 rounded-xl bg-white/5 border border-white/10">
                 <Label className="text-white flex items-center gap-2">
                   <Wallet className="w-4 h-4" />
                   Ví của bạn
                 </Label>
                 
-                {isConnected && address ? (
-                  <div className="space-y-3">
-                    {/* Connected status */}
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-400" />
-                      <span className="text-green-400 text-sm">Đã kết nối</span>
-                    </div>
-                    
-                    {/* Wallet address */}
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={address}
-                        readOnly
-                        className="bg-white/5 border-white/10 text-white font-mono text-sm flex-1"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-white/70 hover:text-white"
-                        onClick={() => {
-                          navigator.clipboard.writeText(address);
-                          toast.success("Đã sao chép địa chỉ ví");
-                        }}
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-white/70 hover:text-white"
-                        onClick={() => window.open(`https://bscscan.com/address/${address}`, '_blank')}
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </div>
-
-                    {/* Balances */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
-                        <p className="text-xs text-white/60">BNB</p>
-                        <p className="text-lg font-bold text-yellow-400">{bnbBalance}</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
-                        <p className="text-xs text-white/60">CAMLY</p>
-                        <p className="text-lg font-bold text-pink-400">{camlyBalance}</p>
-                      </div>
-                    </div>
-
-                    {/* QR Code để nhận crypto */}
-                    <div className="flex flex-col items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
-                      <div className="flex items-center gap-2 text-white/80">
-                        <QrCode className="w-4 h-4" />
-                        <p className="text-sm font-medium">Quét để gửi crypto</p>
-                      </div>
-                      <div className="bg-white p-3 rounded-xl">
-                        <QRCode 
-                          value={address} 
-                          size={140}
-                          level="H"
-                          fgColor="#1a1a2e"
-                        />
-                      </div>
-                      <p className="text-white/50 text-xs text-center">
-                        Quét mã QR này để gửi BNB hoặc CAMLY COIN
-                      </p>
-                    </div>
-
-                    {/* Disconnect button */}
-                    <Button
-                      variant="outline"
-                      className="w-full border-white/20 text-white hover:bg-white/10"
-                      onClick={disconnect}
-                    >
-                      Ngắt kết nối ví
-                    </Button>
+                {/* Input địa chỉ ví thủ công */}
+                <div className="space-y-2">
+                  <Label className="text-white/80 text-sm">Địa chỉ ví (BNB Smart Chain)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={walletAddress}
+                      onChange={(e) => setWalletAddress(e.target.value)}
+                      placeholder="0x..."
+                      className="bg-white/10 border-white/20 text-white font-mono text-sm flex-1"
+                    />
+                    {walletAddress && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-white/70 hover:text-white"
+                          onClick={() => {
+                            navigator.clipboard.writeText(walletAddress);
+                            toast.success("Đã sao chép địa chỉ ví");
+                          }}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-white/70 hover:text-white"
+                          onClick={() => window.open(`https://bscscan.com/address/${walletAddress}`, '_blank')}
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </Button>
+                      </>
+                    )}
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-white/60 text-sm">
-                      Kết nối ví để gửi và nhận CAMLY COIN
+                  {walletAddress && !isValidWalletAddress(walletAddress) && (
+                    <p className="text-red-400 text-xs">
+                      ⚠️ Địa chỉ ví không hợp lệ (phải bắt đầu với 0x và có 42 ký tự)
                     </p>
-                    <Button
-                      onClick={connect}
-                      className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold hover:from-yellow-500 hover:to-orange-600"
-                    >
-                      <Wallet className="w-4 h-4 mr-2" />
-                      Kết nối ví
-                    </Button>
+                  )}
+                  <p className="text-white/50 text-xs">
+                    Nhập địa chỉ ví BNB Smart Chain để nhận CAMLY COIN
+                  </p>
+                </div>
+
+                {/* QR Code - hiển thị khi có địa chỉ ví hợp lệ */}
+                {walletAddress && isValidWalletAddress(walletAddress) && (
+                  <div className="flex flex-col items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
+                    <div className="flex items-center gap-2 text-white/80">
+                      <QrCode className="w-4 h-4" />
+                      <p className="text-sm font-medium">Quét để gửi crypto</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl">
+                      <QRCode 
+                        value={walletAddress} 
+                        size={140}
+                        level="H"
+                        fgColor="#1a1a2e"
+                      />
+                    </div>
+                    <p className="text-white/50 text-xs text-center">
+                      Quét mã QR này để gửi BNB hoặc CAMLY COIN
+                    </p>
                   </div>
                 )}
+
+                {/* MetaMask Connection (Optional) */}
+                <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                  {isConnected && address ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        <span className="text-green-400 text-sm">Đã kết nối MetaMask</span>
+                      </div>
+                      
+                      {/* Balances */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                          <p className="text-xs text-white/60">BNB</p>
+                          <p className="text-sm font-bold text-yellow-400">{bnbBalance}</p>
+                        </div>
+                        <div className="p-2 rounded-lg bg-pink-500/10 border border-pink-500/20">
+                          <p className="text-xs text-white/60">CAMLY</p>
+                          <p className="text-sm font-bold text-pink-400">{camlyBalance}</p>
+                        </div>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full border-white/20 text-white hover:bg-white/10"
+                        onClick={disconnect}
+                      >
+                        Ngắt kết nối ví
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-white/60 text-xs">
+                        Kết nối MetaMask để xem số dư và gửi crypto
+                      </p>
+                      <Button
+                        onClick={connect}
+                        size="sm"
+                        className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-bold hover:from-yellow-500 hover:to-orange-600"
+                      >
+                        <Wallet className="w-4 h-4 mr-2" />
+                        Kết nối MetaMask
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
