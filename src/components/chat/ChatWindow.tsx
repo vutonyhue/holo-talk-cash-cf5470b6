@@ -22,7 +22,9 @@ import {
   Paperclip,
   Coins,
   Loader2,
-  ArrowLeft
+  ArrowLeft,
+  X,
+  Reply
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -53,6 +55,7 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -114,14 +117,28 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
     if (!newMessage.trim()) return;
 
     const content = newMessage;
+    const replyId = replyingTo?.id;
     setNewMessage('');
+    setReplyingTo(null);
     
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
     
-    await sendMessage(content);
+    await sendMessage(content, 'text', {}, replyId);
+  };
+
+  const handleReply = (message: Message) => {
+    setReplyingTo(message);
+    textareaRef.current?.focus();
+  };
+
+  const getReplyPreview = (msg: Message) => {
+    if (msg.message_type === 'image') return '📷 Hình ảnh';
+    if (msg.message_type === 'file') return '📎 File';
+    if (msg.message_type === 'crypto') return '💰 Crypto';
+    return msg.content?.slice(0, 50) + (msg.content && msg.content.length > 50 ? '...' : '');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -284,6 +301,7 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
                   onImageClick={handleImageClick}
                   isRead={isReadByOthers(message.id, message.sender_id || '')}
                   showReadStatus={isLastFromSender}
+                  onReply={handleReply}
                 />
               );
             })}
@@ -309,6 +327,31 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
           </div>
         )}
       </ScrollArea>
+
+      {/* Reply Preview */}
+      {replyingTo && (
+        <div className="px-4 pt-3 bg-card/50 backdrop-blur-sm border-t">
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
+            <Reply className="w-4 h-4 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-primary">
+                Đang trả lời {replyingTo.sender_id === user?.id ? 'chính bạn' : replyingTo.sender?.display_name}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {getReplyPreview(replyingTo)}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-6 h-6 rounded-full shrink-0"
+              onClick={() => setReplyingTo(null)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="p-4 border-t bg-card/50 backdrop-blur-sm">
