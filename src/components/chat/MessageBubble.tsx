@@ -224,7 +224,11 @@ export default function MessageBubble({
                 <button
                   key={emoji}
                   className="text-xl hover:scale-125 transition-transform p-1"
-                  onClick={() => onReaction?.(message.id, emoji)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onReaction?.(message.id, emoji);
+                  }}
                 >
                   {emoji}
                 </button>
