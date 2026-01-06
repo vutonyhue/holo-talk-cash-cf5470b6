@@ -49,6 +49,7 @@ export default function VideoCallModal({
     toggleMute,
     toggleVideo,
     leaveChannel,
+    retryConnection,
     setLocalVideoContainer,
   } = useAgoraCall({
     channelName: channelName || '',
@@ -150,26 +151,36 @@ export default function VideoCallModal({
             </div>
             
             {/* Status indicator */}
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-4 flex flex-col items-center gap-2">
               {isConnecting ? (
-                <>
+                <div className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-white animate-spin" />
                   <span className="text-white/60 text-sm">Đang kết nối...</span>
-                </>
+                </div>
               ) : isJoined ? (
-                <>
+                <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                   <span className="text-white/60 text-sm">
-                    {remoteUsers.length > 0 ? 'Đã kết nối' : 'Đang chờ người khác...'}
+                    {remoteUsers.length > 0 ? 'Đã kết nối' : 'Đang chờ người khác tham gia...'}
                   </span>
-                </>
+                </div>
               ) : error ? (
-                <span className="text-red-400 text-sm">{error}</span>
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-red-400 text-sm text-center">{error}</span>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={retryConnection}
+                    className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                  >
+                    Thử lại
+                  </Button>
+                </div>
               ) : (
-                <>
+                <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
                   <span className="text-white/60 text-sm">Đang gọi...</span>
-                </>
+                </div>
               )}
             </div>
           </div>
