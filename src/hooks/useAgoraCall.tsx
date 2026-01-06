@@ -10,6 +10,16 @@ import { supabase } from '@/integrations/supabase/client';
 // Cloudflare Worker URL for Agora token generation
 const AGORA_TOKEN_WORKER_URL = 'https://agora-token-worker-v2.hieu-le-010.workers.dev';
 
+// Generate stable numeric UID from user ID string
+const generateUidFromUserId = (userId: string): number => {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash) + userId.charCodeAt(i);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash) % 1000000000; // Agora UID range: 0 to 10^9
+};
+
 interface UseAgoraCallProps {
   channelName: string;
   uid?: number;
@@ -64,16 +74,19 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     };
   }, []);
 
-  // Set up event listeners once
+  // Set up event listeners - always reset before adding new ones
   const setupEventListeners = useCallback(() => {
-    if (!clientRef.current || eventListenersSetRef.current) return;
+    if (!clientRef.current) return;
     
+    // Always remove old listeners to ensure clean state
+    clientRef.current.removeAllListeners();
     eventListenersSetRef.current = true;
     
     clientRef.current.on('user-published', async (user, mediaType) => {
-      console.log('User published:', user.uid, mediaType);
+      console.log('User published:', user.uid, mediaType, 'hasAudio:', user.hasAudio, 'hasVideo:', user.hasVideo);
       try {
         await clientRef.current!.subscribe(user, mediaType);
+        console.log('Subscribed to user:', user.uid, mediaType);
         
         if (mediaType === 'video') {
           setState(prev => ({
@@ -108,6 +121,10 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       }));
     });
 
+    clientRef.current.on('user-joined', (user) => {
+      console.log('User joined channel:', user.uid);
+    });
+
     clientRef.current.on('connection-state-change', (curState, prevState) => {
       console.log('Connection state changed:', prevState, '->', curState);
     });
@@ -121,24 +138,28 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   const fetchToken = useCallback(async (retries = 3): Promise<{ token: string; appId: string; uid: number }> => {
     let lastError: Error | null = null;
     
+    // Get user ID to generate stable UID
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token || !session?.user?.id) {
+      throw new Error('Bạn cần đăng nhập để thực hiện cuộc gọi');
+    }
+    
+    // Generate stable UID from user ID
+    const stableUid = generateUidFromUserId(session.user.id);
+    console.log('Generated stable UID:', stableUid, 'from user ID:', session.user.id);
+    
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        console.log(`Fetching Agora token for channel: ${channelName} (attempt ${attempt + 1}/${retries})`);
-        
-        // Get Supabase access token for authentication
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          throw new Error('Bạn cần đăng nhập để thực hiện cuộc gọi');
-        }
+        console.log(`Fetching Agora token for channel: ${channelName}, uid: ${stableUid} (attempt ${attempt + 1}/${retries})`);
 
-        // Call Cloudflare Worker
+        // Call Cloudflare Worker with stable UID
         const response = await fetch(AGORA_TOKEN_WORKER_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ channelName, uid: 0, role: 1 }),
+          body: JSON.stringify({ channelName, uid: stableUid, role: 1 }),
         });
 
         if (!response.ok) {
@@ -161,7 +182,9 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
           tokenPrefix: data.token?.substring(0, 10),
           uid: data.uid,
         });
-        return data;
+        
+        // Return with stable UID
+        return { ...data, uid: stableUid };
       } catch (error: any) {
         console.error(`Token fetch attempt ${attempt + 1} failed:`, error);
         lastError = error;
@@ -236,10 +259,30 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       
       console.log('Joining channel:', channelName, 'appId:', appId?.substring(0, 8), 'uid:', tokenUid, 'tokenPrefix:', token?.substring(0, 10));
       
-      // Join the channel with numeric UID (0 = auto-assign by Agora)
-      await clientRef.current.join(appId, channelName, token, tokenUid || 0);
-      console.log('Joined channel successfully');
+      // Join the channel with stable UID
+      await clientRef.current.join(appId, channelName, token, tokenUid);
+      console.log('Joined channel successfully with UID:', tokenUid);
       hasJoinedRef.current = true;
+
+      // Subscribe to existing remote users already in the channel
+      const existingUsers = clientRef.current.remoteUsers;
+      console.log('Existing remote users in channel:', existingUsers.length);
+      for (const user of existingUsers) {
+        console.log('Found existing user:', user.uid, 'hasAudio:', user.hasAudio, 'hasVideo:', user.hasVideo);
+        if (user.hasAudio) {
+          await clientRef.current.subscribe(user, 'audio');
+          user.audioTrack?.play();
+          console.log('Subscribed to existing user audio:', user.uid);
+        }
+        if (user.hasVideo) {
+          await clientRef.current.subscribe(user, 'video');
+          setState(prev => ({
+            ...prev,
+            remoteUsers: [...prev.remoteUsers.filter(u => u.uid !== user.uid), user],
+          }));
+          console.log('Subscribed to existing user video:', user.uid);
+        }
+      }
 
       // Create and publish local tracks
       const tracks: (ICameraVideoTrack | IMicrophoneAudioTrack)[] = [];
