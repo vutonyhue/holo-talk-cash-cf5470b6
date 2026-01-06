@@ -101,15 +101,31 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         await clientRef.current!.subscribe(user, mediaType);
         console.log('Subscribed to user:', user.uid, mediaType);
         
-        if (mediaType === 'video') {
-          setState(prev => ({
+        // Force state update after successful subscription - use the updated user object
+        setState(prev => {
+          const existingIndex = prev.remoteUsers.findIndex(u => u.uid === user.uid);
+          let newRemoteUsers: IAgoraRTCRemoteUser[];
+          
+          if (existingIndex >= 0) {
+            // Update existing user with new track info
+            newRemoteUsers = [...prev.remoteUsers];
+            newRemoteUsers[existingIndex] = user;
+          } else {
+            newRemoteUsers = [...prev.remoteUsers, user];
+          }
+          
+          console.log('Updated remoteUsers after subscribe:', newRemoteUsers.length, 
+            newRemoteUsers.map(u => ({ uid: u.uid, hasVideo: !!u.videoTrack, hasAudio: !!u.audioTrack }))
+          );
+          return {
             ...prev,
-            remoteUsers: [...prev.remoteUsers.filter(u => u.uid !== user.uid), user],
-          }));
-        }
+            remoteUsers: newRemoteUsers,
+          };
+        });
         
-        if (mediaType === 'audio') {
-          user.audioTrack?.play();
+        if (mediaType === 'audio' && user.audioTrack) {
+          console.log('Auto-playing remote audio for user:', user.uid);
+          user.audioTrack.play();
         }
       } catch (err) {
         console.error('Error subscribing to user:', err);
@@ -118,12 +134,11 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
     clientRef.current.on('user-unpublished', (user, mediaType) => {
       console.log('User unpublished:', user.uid, mediaType);
-      if (mediaType === 'video') {
-        setState(prev => ({
-          ...prev,
-          remoteUsers: prev.remoteUsers.filter(u => u.uid !== user.uid),
-        }));
-      }
+      // Update the user object in state to reflect unpublished track
+      setState(prev => ({
+        ...prev,
+        remoteUsers: prev.remoteUsers.map(u => u.uid === user.uid ? user : u),
+      }));
     });
 
     clientRef.current.on('user-left', (user) => {
