@@ -8,9 +8,11 @@ import { Coins, CheckCheck, FileIcon, Download } from 'lucide-react';
 interface MessageBubbleProps {
   message: Message;
   onImageClick?: (src: string, alt: string) => void;
+  isRead?: boolean;
+  showReadStatus?: boolean;
 }
 
-export default function MessageBubble({ message, onImageClick }: MessageBubbleProps) {
+export default function MessageBubble({ message, onImageClick, isRead = false, showReadStatus = true }: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
 
@@ -140,8 +142,8 @@ export default function MessageBubble({ message, onImageClick }: MessageBubblePr
           <span className="text-[11px] text-muted-foreground">
             {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
           </span>
-          {isMine && (
-            <CheckCheck className="w-3.5 h-3.5 text-primary" />
+          {isMine && showReadStatus && (
+            <CheckCheck className={`w-3.5 h-3.5 ${isRead ? 'text-primary' : 'text-muted-foreground/50'}`} />
           )}
         </div>
       </div>
