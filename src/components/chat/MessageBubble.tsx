@@ -11,6 +11,12 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { ReactionGroup } from '@/hooks/useReactions';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +24,7 @@ interface MessageBubbleProps {
   message: Message;
   onImageClick?: (src: string, alt: string) => void;
   isRead?: boolean;
+  readTime?: string | null;
   showReadStatus?: boolean;
   onReply?: (message: Message) => void;
   onForward?: (message: Message) => void;
@@ -31,6 +38,7 @@ export default function MessageBubble({
   message, 
   onImageClick, 
   isRead = false, 
+  readTime = null,
   showReadStatus = true, 
   onReply,
   onForward,
@@ -335,13 +343,24 @@ export default function MessageBubble({
             {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
           </span>
           {isMine && showReadStatus && (
-            <CheckCheck 
-              className={`w-3.5 h-3.5 transition-all duration-500 ease-out ${
-                isRead 
-                  ? 'text-primary scale-110 animate-[pulse_0.5s_ease-out]' 
-                  : 'text-muted-foreground/50 scale-100'
-              }`} 
-            />
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <CheckCheck 
+                    className={`w-3.5 h-3.5 transition-all duration-500 ease-out cursor-pointer ${
+                      isRead 
+                        ? 'text-primary scale-110 animate-[pulse_0.5s_ease-out]' 
+                        : 'text-muted-foreground/50 scale-100'
+                    }`} 
+                  />
+                </TooltipTrigger>
+                {isRead && readTime && (
+                  <TooltipContent side="top" className="text-xs">
+                    <p>Đã xem lúc {format(new Date(readTime), 'HH:mm, dd/MM/yyyy', { locale: vi })}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>
