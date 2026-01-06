@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ArrowLeft, Camera, Loader2, Save, User, Wallet, Copy, ExternalLink, CheckCircle, QrCode } from "lucide-react";
 import QRCode from "react-qr-code";
+import TransactionHistory from "@/components/wallet/TransactionHistory";
 
 const Profile = () => {
   const { user, profile, loading, updateProfile } = useAuth();
@@ -292,6 +293,11 @@ const Profile = () => {
                       Quét mã QR này để gửi BNB hoặc CAMLY COIN
                     </p>
                   </div>
+                )}
+
+                {/* Transaction History */}
+                {walletAddress && isValidWalletAddress(walletAddress) && (
+                  <TransactionHistory walletAddress={walletAddress} />
                 )}
 
                 {/* MetaMask Connection (Optional) */}
