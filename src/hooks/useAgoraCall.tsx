@@ -59,20 +59,33 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   const localAudioTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const localVideoTrackRef = useRef<ICameraVideoTrack | null>(null);
 
-  // Initialize Agora client
+  // Create new Agora client for each call session
   useEffect(() => {
-    if (!clientRef.current) {
+    if (enabled && channelName) {
+      // Cleanup old client if exists
+      if (clientRef.current) {
+        console.log('Cleaning up old Agora client before creating new one');
+        clientRef.current.removeAllListeners();
+        clientRef.current = null;
+      }
+      
+      // Reset all refs for new session
+      hasJoinedRef.current = false;
+      joinInProgressRef.current = false;
+      eventListenersSetRef.current = false;
+      
+      // Create new client
       clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-      console.log('Agora client created');
+      console.log('New Agora client created for channel:', channelName);
     }
     
     return () => {
-      // Cleanup on unmount
       if (clientRef.current) {
         clientRef.current.removeAllListeners();
+        clientRef.current = null;
       }
     };
-  }, []);
+  }, [enabled, channelName]);
 
   // Set up event listeners - always reset before adding new ones
   const setupEventListeners = useCallback(() => {
@@ -356,9 +369,12 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     }
   }, [channelName, fetchToken, isVideoCall, setupEventListeners]);
 
-  // Leave channel
+  // Leave channel with full cleanup
   const leaveChannel = useCallback(async () => {
-    if (!clientRef.current) return;
+    console.log('Leaving channel, current state:', {
+      hasJoined: hasJoinedRef.current,
+      isConnected: clientRef.current?.connectionState
+    });
 
     try {
       // Stop and close local tracks
@@ -374,18 +390,26 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         localVideoTrackRef.current = null;
       }
 
-      if (hasJoinedRef.current) {
-        await clientRef.current.leave();
-        console.log('Left channel');
+      // Leave channel if connected
+      if (clientRef.current) {
+        const connectionState = clientRef.current.connectionState;
+        if (connectionState === 'CONNECTED' || connectionState === 'CONNECTING') {
+          await clientRef.current.leave();
+          console.log('Left channel successfully');
+        }
+        
+        // Remove all listeners and destroy client
+        clientRef.current.removeAllListeners();
+        clientRef.current = null;
+        console.log('Agora client destroyed');
       }
 
+      // Reset all refs
       hasJoinedRef.current = false;
       joinInProgressRef.current = false;
       eventListenersSetRef.current = false;
-      
-      // Remove all listeners
-      clientRef.current.removeAllListeners();
 
+      // Reset state
       setState({
         localVideoTrack: null,
         localAudioTrack: null,
@@ -396,8 +420,14 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         isConnecting: false,
         error: null,
       });
+      
+      console.log('Channel cleanup completed');
     } catch (error) {
       console.error('Failed to leave channel:', error);
+      // Still reset state even on error
+      hasJoinedRef.current = false;
+      joinInProgressRef.current = false;
+      clientRef.current = null;
     }
   }, []);
 

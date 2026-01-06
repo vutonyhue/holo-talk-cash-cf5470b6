@@ -193,8 +193,9 @@ export default function Chat() {
         />
       )}
 
-      {/* Video/Voice Call Modal */}
+      {/* Video/Voice Call Modal - key forces remount on new call */}
       <VideoCallModal
+        key={activeCall?.channel_name || 'no-call'}
         open={!!activeCall}
         onClose={handleEndCall}
         callType={activeCall?.call_type || 'video'}
