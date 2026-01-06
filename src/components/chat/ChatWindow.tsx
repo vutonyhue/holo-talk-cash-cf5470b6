@@ -9,11 +9,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import ImageLightbox, { LightboxImage } from './ImageLightbox';
 import ForwardMessageDialog from './ForwardMessageDialog';
+import TextInputContextMenu from './TextInputContextMenu';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { 
@@ -463,19 +465,29 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
           </div>
 
           <div className="flex-1 relative">
-            <Textarea
-              ref={textareaRef}
-              placeholder="Nhập tin nhắn..."
-              value={newMessage}
-              onChange={(e) => {
-                setNewMessage(e.target.value);
-                adjustTextareaHeight();
-                broadcastTyping();
-              }}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              className="min-h-[44px] max-h-[120px] py-3 pr-12 resize-none rounded-xl bg-muted/50 border-0 focus-visible:ring-primary overflow-y-auto"
-            />
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="Nhập tin nhắn..."
+                  value={newMessage}
+                  onChange={(e) => {
+                    setNewMessage(e.target.value);
+                    adjustTextareaHeight();
+                    broadcastTyping();
+                  }}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                  className="min-h-[44px] max-h-[120px] py-3 pr-12 resize-none rounded-xl bg-muted/50 border-0 focus-visible:ring-primary overflow-y-auto"
+                />
+              </ContextMenuTrigger>
+              <TextInputContextMenu
+                textareaRef={textareaRef}
+                value={newMessage}
+                onChange={setNewMessage}
+                onKeyDown={handleKeyDown}
+              />
+            </ContextMenu>
             <Button 
               size="icon" 
               className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg gradient-primary"
