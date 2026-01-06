@@ -9,7 +9,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWallet } from "@/hooks/useWallet";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, Loader2, Save, User, Wallet, Copy, ExternalLink, CheckCircle } from "lucide-react";
+import { ArrowLeft, Camera, Loader2, Save, User, Wallet, Copy, ExternalLink, CheckCircle, QrCode } from "lucide-react";
+import QRCode from "react-qr-code";
 
 const Profile = () => {
   const { user, profile, loading, updateProfile } = useAuth();
@@ -263,6 +264,25 @@ const Profile = () => {
                         <p className="text-xs text-white/60">CAMLY</p>
                         <p className="text-lg font-bold text-pink-400">{camlyBalance}</p>
                       </div>
+                    </div>
+
+                    {/* QR Code để nhận crypto */}
+                    <div className="flex flex-col items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/10">
+                      <div className="flex items-center gap-2 text-white/80">
+                        <QrCode className="w-4 h-4" />
+                        <p className="text-sm font-medium">Quét để gửi crypto</p>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl">
+                        <QRCode 
+                          value={address} 
+                          size={140}
+                          level="H"
+                          fgColor="#1a1a2e"
+                        />
+                      </div>
+                      <p className="text-white/50 text-xs text-center">
+                        Quét mã QR này để gửi BNB hoặc CAMLY COIN
+                      </p>
                     </div>
 
                     {/* Disconnect button */}
