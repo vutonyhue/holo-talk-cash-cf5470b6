@@ -117,52 +117,68 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     });
   }, []);
 
-  // Fetch token from Cloudflare Worker
-  const fetchToken = useCallback(async () => {
-    try {
-      console.log('Fetching Agora token for channel:', channelName);
-      
-      // Get Supabase access token for authentication
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        throw new Error('Bạn cần đăng nhập để thực hiện cuộc gọi');
-      }
-
-      // Call Cloudflare Worker
-      const response = await fetch(AGORA_TOKEN_WORKER_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ channelName, uid: 0, role: 1 }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+  // Fetch token from Cloudflare Worker with retry logic
+  const fetchToken = useCallback(async (retries = 3): Promise<{ token: string; appId: string; uid: number }> => {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        console.log(`Fetching Agora token for channel: ${channelName} (attempt ${attempt + 1}/${retries})`);
         
-        if (response.status === 401) {
-          throw new Error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        // Get Supabase access token for authentication
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          throw new Error('Bạn cần đăng nhập để thực hiện cuộc gọi');
         }
-        if (response.status === 429) {
-          throw new Error('Quá nhiều yêu cầu. Vui lòng thử lại sau.');
+
+        // Call Cloudflare Worker
+        const response = await fetch(AGORA_TOKEN_WORKER_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ channelName, uid: 0, role: 1 }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          
+          if (response.status === 401) {
+            throw new Error('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+          }
+          if (response.status === 429) {
+            throw new Error('Quá nhiều yêu cầu. Vui lòng thử lại sau.');
+          }
+          
+          throw new Error(errorData.error || 'Không thể lấy token từ server');
+        }
+
+        const data = await response.json();
+
+        console.log('Token fetched:', {
+          appIdPrefix: data.appId?.substring(0, 8),
+          tokenPrefix: data.token?.substring(0, 10),
+          uid: data.uid,
+        });
+        return data;
+      } catch (error: any) {
+        console.error(`Token fetch attempt ${attempt + 1} failed:`, error);
+        lastError = error;
+        
+        // Don't retry for auth errors
+        if (error.message?.includes('đăng nhập')) {
+          throw error;
         }
         
-        throw new Error(errorData.error || 'Không thể lấy token từ server');
+        // Wait before retry (exponential backoff)
+        if (attempt < retries - 1) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        }
       }
-
-      const data = await response.json();
-
-      console.log('Token fetched:', {
-        appIdPrefix: data.appId?.substring(0, 8),
-        tokenPrefix: data.token?.substring(0, 10),
-        uid: data.uid,
-      });
-      return data;
-    } catch (error) {
-      console.error('Failed to fetch Agora token:', error);
-      throw error;
     }
+    
+    throw lastError || new Error('Không thể lấy token sau nhiều lần thử');
   }, [channelName]);
 
   // Join channel
@@ -181,6 +197,32 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     if (hasJoinedRef.current) {
       console.log('Already joined, skipping');
       return;
+    }
+
+    // Check connection state and cleanup if needed
+    const connectionState = clientRef.current.connectionState;
+    if (connectionState === 'CONNECTED' || connectionState === 'CONNECTING') {
+      console.log('Client still connected, cleaning up first:', connectionState);
+      // Inline cleanup to avoid circular dependency
+      if (localAudioTrackRef.current) {
+        localAudioTrackRef.current.stop();
+        localAudioTrackRef.current.close();
+        localAudioTrackRef.current = null;
+      }
+      if (localVideoTrackRef.current) {
+        localVideoTrackRef.current.stop();
+        localVideoTrackRef.current.close();
+        localVideoTrackRef.current = null;
+      }
+      try {
+        await clientRef.current.leave();
+      } catch (e) {
+        console.log('Cleanup leave error (ignored):', e);
+      }
+      hasJoinedRef.current = false;
+      eventListenersSetRef.current = false;
+      clientRef.current.removeAllListeners();
+      await new Promise(r => setTimeout(r, 500)); // Wait for cleanup
     }
 
     joinInProgressRef.current = true;
@@ -241,12 +283,22 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       hasJoinedRef.current = false;
       
       let errorMessage = 'Không thể kết nối cuộc gọi';
-      if (error.message?.includes('AGORA_APP_ID')) {
-        errorMessage = error.message;
+      
+      // Handle specific Agora error codes
+      if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
+        errorMessage = 'Không thể kết nối server Agora. Kiểm tra kết nối mạng.';
+      } else if (error.code === 'UID_CONFLICT') {
+        errorMessage = 'Xung đột user ID. Vui lòng thử lại.';
       } else if (error.code === 'INVALID_VENDOR_KEY' || error.message?.includes('vendor key')) {
         errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra cấu hình.';
       } else if (error.code === 'INVALID_OPERATION') {
         errorMessage = 'Lỗi kết nối. Vui lòng thử lại.';
+      } else if (error.code === 'OPERATION_ABORTED') {
+        errorMessage = 'Kết nối bị hủy. Vui lòng thử lại.';
+      } else if (error.message?.includes('AGORA_APP_ID')) {
+        errorMessage = error.message;
+      } else if (error.message?.includes('đăng nhập')) {
+        errorMessage = error.message;
       } else if (error.message) {
         errorMessage = error.message;
       }

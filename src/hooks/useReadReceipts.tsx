@@ -87,20 +87,38 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     // Mark as pending
     newMessageIds.forEach((id) => markedAsReadRef.current.add(id));
 
-    // Insert read receipts
-    const inserts = newMessageIds.map((messageId) => ({
-      message_id: messageId,
-      user_id: user.id,
-    }));
+    try {
+      // Check which messages are already read to avoid duplicate insert errors
+      const { data: existingReads } = await supabase
+        .from('message_reads')
+        .select('message_id')
+        .in('message_id', newMessageIds)
+        .eq('user_id', user.id);
 
-    const { error } = await supabase
-      .from('message_reads')
-      .upsert(inserts, { onConflict: 'message_id,user_id' });
+      const existingIds = new Set(existingReads?.map(r => r.message_id) || []);
+      const toInsert = newMessageIds.filter(id => !existingIds.has(id));
 
-    if (error) {
+      if (toInsert.length === 0) return;
+
+      // Insert only new read receipts
+      const inserts = toInsert.map((messageId) => ({
+        message_id: messageId,
+        user_id: user.id,
+      }));
+
+      const { error } = await supabase
+        .from('message_reads')
+        .insert(inserts);
+
+      if (error) {
+        // Remove from pending if failed
+        toInsert.forEach((id) => markedAsReadRef.current.delete(id));
+        console.error('Error marking messages as read:', error);
+      }
+    } catch (err) {
       // Remove from pending if failed
       newMessageIds.forEach((id) => markedAsReadRef.current.delete(id));
-      console.error('Error marking messages as read:', error);
+      console.error('Error marking messages as read:', err);
     }
   }, [user]);
 
