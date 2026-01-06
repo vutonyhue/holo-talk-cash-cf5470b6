@@ -335,7 +335,13 @@ export default function MessageBubble({
             {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
           </span>
           {isMine && showReadStatus && (
-            <CheckCheck className={`w-3.5 h-3.5 ${isRead ? 'text-primary' : 'text-muted-foreground/50'}`} />
+            <CheckCheck 
+              className={`w-3.5 h-3.5 transition-all duration-500 ease-out ${
+                isRead 
+                  ? 'text-primary scale-110 animate-[pulse_0.5s_ease-out]' 
+                  : 'text-muted-foreground/50 scale-100'
+              }`} 
+            />
           )}
         </div>
       </div>
