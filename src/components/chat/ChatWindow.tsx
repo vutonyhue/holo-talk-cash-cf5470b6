@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Conversation, Message } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
+import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -39,6 +40,7 @@ interface ChatWindowProps {
 export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
   const { profile } = useAuth();
   const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage } = useMessages(conversation.id);
+  const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -257,6 +259,25 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
                 onImageClick={handleImageClick}
               />
             ))}
+            
+            {/* Typing Indicator */}
+            {typingUsers.length > 0 && (
+              <div className="flex items-center gap-2 px-2 py-1">
+                <div className="flex items-center gap-1 px-3 py-2 bg-muted rounded-2xl">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {typingUsers.length === 1 
+                    ? `${typingUsers[0].name} đang nhập...`
+                    : `${typingUsers.map(u => u.name).join(', ')} đang nhập...`
+                  }
+                </span>
+              </div>
+            )}
           </div>
         )}
       </ScrollArea>
@@ -307,6 +328,7 @@ export default function ChatWindow({ conversation, onVideoCall, onVoiceCall, onB
               onChange={(e) => {
                 setNewMessage(e.target.value);
                 adjustTextareaHeight();
+                broadcastTyping();
               }}
               onKeyDown={handleKeyDown}
               rows={1}
