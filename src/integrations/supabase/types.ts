@@ -449,6 +449,7 @@ export type Database = {
           email: string | null
           id: string
           last_seen: string | null
+          referred_by: string | null
           status: string | null
           updated_at: string | null
           username: string
@@ -461,6 +462,7 @@ export type Database = {
           email?: string | null
           id: string
           last_seen?: string | null
+          referred_by?: string | null
           status?: string | null
           updated_at?: string | null
           username: string
@@ -473,12 +475,21 @@ export type Database = {
           email?: string | null
           id?: string
           last_seen?: string | null
+          referred_by?: string | null
           status?: string | null
           updated_at?: string | null
           username?: string
           wallet_address?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_referred_by_fkey"
+            columns: ["referred_by"]
+            isOneToOne: false
+            referencedRelation: "referral_codes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rate_limits: {
         Row: {
@@ -506,6 +517,71 @@ export type Database = {
           window_start?: string | null
         }
         Relationships: []
+      }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          max_uses: number | null
+          updated_at: string | null
+          user_id: string
+          uses_count: number | null
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_uses?: number | null
+          updated_at?: string | null
+          user_id: string
+          uses_count?: number | null
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_uses?: number | null
+          updated_at?: string | null
+          user_id?: string
+          uses_count?: number | null
+        }
+        Relationships: []
+      }
+      referral_uses: {
+        Row: {
+          created_at: string | null
+          id: string
+          referral_code_id: string
+          referred_user_id: string
+          referrer_user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          referral_code_id: string
+          referred_user_id: string
+          referrer_user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          referral_code_id?: string
+          referred_user_id?: string
+          referrer_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_uses_referral_code_id_fkey"
+            columns: ["referral_code_id"]
+            isOneToOne: false
+            referencedRelation: "referral_codes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reward_tasks: {
         Row: {

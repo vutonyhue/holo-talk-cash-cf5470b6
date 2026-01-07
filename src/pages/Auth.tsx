@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthInd
 import { PasswordInput } from '@/components/auth/PasswordInput';
 import { UsernameInput } from '@/components/auth/UsernameInput';
 import { EmailInput } from '@/components/auth/EmailInput';
+import { supabase } from '@/integrations/supabase/client';
 
 const emailSchema = z.string().email('Email không hợp lệ');
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
@@ -21,9 +22,13 @@ const usernameSchema = z.string()
   .max(20, 'Username tối đa 20 ký tự')
   .regex(/^[a-z0-9]+(_[a-z0-9]+)*$/, 'Username không hợp lệ');
 
+// Key for storing referral code in localStorage
+const REFERRAL_CODE_KEY = 'funchat_referral_code';
+
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, signIn, signUp, signInWithGoogle, signInWithGitHub, signInWithDiscord, resetPassword } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { user, session, signIn, signUp, signInWithGoogle, signInWithGitHub, signInWithDiscord, resetPassword } = useAuth();
   const { toast } = useToast();
   
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
@@ -40,11 +45,50 @@ export default function Auth() {
     return localStorage.getItem('rememberMe') === 'true';
   });
 
+  // Store referral code from URL
   useEffect(() => {
-    if (user) {
+    const refCode = searchParams.get('ref');
+    if (refCode) {
+      localStorage.setItem(REFERRAL_CODE_KEY, refCode.toUpperCase());
+      // Switch to signup mode when coming from referral link
+      setMode('signup');
+    }
+  }, [searchParams]);
+
+  // Use referral code after signup
+  const useStoredReferralCode = useCallback(async (accessToken: string) => {
+    const storedCode = localStorage.getItem(REFERRAL_CODE_KEY);
+    if (!storedCode) return;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('use-referral-code', {
+        body: { code: storedCode },
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      if (!error && data?.success) {
+        toast({
+          title: 'Mã giới thiệu đã được áp dụng!',
+          description: `Bạn được giới thiệu bởi ${data.referrer_username}`,
+        });
+      }
+      // Clear the stored code regardless of success
+      localStorage.removeItem(REFERRAL_CODE_KEY);
+    } catch (err) {
+      console.error('Error using referral code:', err);
+      localStorage.removeItem(REFERRAL_CODE_KEY);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (user && session?.access_token) {
+      // Try to use stored referral code after login/signup
+      useStoredReferralCode(session.access_token);
       navigate('/chat');
     }
-  }, [user, navigate]);
+  }, [user, session, navigate, useStoredReferralCode]);
 
   // Clear session on browser close if "Remember Me" is not checked
   useEffect(() => {
