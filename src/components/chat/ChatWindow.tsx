@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Conversation, Message } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useMessages } from '@/hooks/useMessages';
@@ -10,6 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import MessageBubble from './MessageBubble';
 import CryptoSendDialog from './CryptoSendDialog';
 import ImagePreviewDialog from './ImagePreviewDialog';
@@ -30,7 +41,11 @@ import {
   ArrowLeft,
   X,
   Reply,
-  Mic
+  Mic,
+  User,
+  Bell,
+  BellOff,
+  Trash2
 } from 'lucide-react';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import VoiceRecorder from './VoiceRecorder';
@@ -47,9 +62,11 @@ interface ChatWindowProps {
   onVideoCall: () => void;
   onVoiceCall: () => void;
   onBack?: () => void;
+  onDeleteConversation?: (conversationId: string) => void;
 }
 
-export default function ChatWindow({ conversation, conversations, onVideoCall, onVoiceCall, onBack }: ChatWindowProps) {
+export default function ChatWindow({ conversation, conversations, onVideoCall, onVoiceCall, onBack, onDeleteConversation }: ChatWindowProps) {
+  const navigate = useNavigate();
   const { profile, user } = useAuth();
   const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage, sendVoiceMessage, deleteMessage } = useMessages(conversation.id);
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
@@ -76,6 +93,8 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,6 +131,24 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const chatAvatar = conversation.is_group 
     ? conversation.avatar_url 
     : otherMember?.profile?.avatar_url;
+
+  // Fetch mute status
+  useEffect(() => {
+    const fetchMuteStatus = async () => {
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('conversation_members')
+        .select('is_muted')
+        .eq('conversation_id', conversation.id)
+        .eq('user_id', user.id)
+        .single();
+
+      setIsMuted(data?.is_muted || false);
+    };
+
+    fetchMuteStatus();
+  }, [conversation.id, user]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -307,6 +344,57 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     cancelRecording();
   };
 
+  // Menu handlers
+  const handleViewProfile = () => {
+    if (conversation.is_group) {
+      toast.info('Đây là nhóm chat');
+    } else if (otherMember?.user_id) {
+      navigate(`/profile/${otherMember.user_id}`);
+    }
+  };
+
+  const handleToggleMute = async () => {
+    if (!user) return;
+
+    const newMutedState = !isMuted;
+
+    const { error } = await supabase
+      .from('conversation_members')
+      .update({
+        is_muted: newMutedState,
+        muted_at: newMutedState ? new Date().toISOString() : null,
+      })
+      .eq('conversation_id', conversation.id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      toast.error('Không thể thay đổi cài đặt thông báo');
+    } else {
+      setIsMuted(newMutedState);
+      toast.success(newMutedState ? 'Đã tắt thông báo' : 'Đã bật thông báo');
+    }
+  };
+
+  const handleDeleteConversation = async () => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('conversation_members')
+      .delete()
+      .eq('conversation_id', conversation.id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      toast.error('Không thể xóa cuộc trò chuyện');
+    } else {
+      toast.success('Đã xóa cuộc trò chuyện');
+      onDeleteConversation?.(conversation.id);
+      if (onBack) onBack();
+    }
+
+    setShowDeleteDialog(false);
+  };
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
@@ -364,9 +452,30 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>Xem hồ sơ</DropdownMenuItem>
-              <DropdownMenuItem>Tắt thông báo</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">Xóa cuộc trò chuyện</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleViewProfile}>
+                <User className="w-4 h-4 mr-2" />
+                Xem hồ sơ
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleToggleMute}>
+                {isMuted ? (
+                  <>
+                    <Bell className="w-4 h-4 mr-2" />
+                    Bật thông báo
+                  </>
+                ) : (
+                  <>
+                    <BellOff className="w-4 h-4 mr-2" />
+                    Tắt thông báo
+                  </>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                className="text-destructive"
+                onClick={() => setShowDeleteDialog(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Xóa cuộc trò chuyện
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -584,6 +693,28 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
         conversations={conversations.filter(c => c.id !== conversation.id)}
         onForward={handleForwardToConversations}
       />
+
+      {/* Delete Conversation Confirmation */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xóa cuộc trò chuyện?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Bạn sẽ không thể nhận tin nhắn từ cuộc trò chuyện này nữa.
+              Lịch sử tin nhắn sẽ bị xóa khỏi danh sách của bạn.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConversation}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Xóa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

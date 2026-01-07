@@ -10,6 +10,7 @@ import VerifyEmail from "./pages/VerifyEmail";
 import ResetPassword from "./pages/ResetPassword";
 import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
+import UserProfile from "./pages/UserProfile";
 import Settings from "./pages/Settings";
 import ApiKeys from "./pages/ApiKeys";
 import ApiDocs from "./pages/ApiDocs";
@@ -32,6 +33,7 @@ const App = () => (
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/profile/:userId" element={<UserProfile />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/api-keys" element={<ApiKeys />} />
             <Route path="/api-docs" element={<ApiDocs />} />

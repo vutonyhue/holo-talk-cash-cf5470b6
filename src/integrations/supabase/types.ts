@@ -221,21 +221,27 @@ export type Database = {
         Row: {
           conversation_id: string | null
           id: string
+          is_muted: boolean | null
           joined_at: string | null
+          muted_at: string | null
           role: string | null
           user_id: string | null
         }
         Insert: {
           conversation_id?: string | null
           id?: string
+          is_muted?: boolean | null
           joined_at?: string | null
+          muted_at?: string | null
           role?: string | null
           user_id?: string | null
         }
         Update: {
           conversation_id?: string | null
           id?: string
+          is_muted?: boolean | null
           joined_at?: string | null
+          muted_at?: string | null
           role?: string | null
           user_id?: string | null
         }
