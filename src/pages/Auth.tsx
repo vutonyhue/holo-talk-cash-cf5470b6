@@ -25,12 +25,29 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => {
+    return localStorage.getItem('rememberMe') === 'true';
+  });
 
   useEffect(() => {
     if (user) {
       navigate('/chat');
     }
   }, [user, navigate]);
+
+  // Clear session on browser close if "Remember Me" is not checked
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const shouldRemember = localStorage.getItem('rememberMe') === 'true';
+      if (!shouldRemember) {
+        // Mark session as temporary
+        sessionStorage.setItem('tempSession', 'true');
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,6 +234,21 @@ export default function Auth() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="remember-me"
+                  checked={rememberMe}
+                  onChange={(e) => {
+                    setRememberMe(e.target.checked);
+                    localStorage.setItem('rememberMe', String(e.target.checked));
+                  }}
+                  className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                />
+                <Label htmlFor="remember-me" className="text-sm font-normal cursor-pointer">
+                  Ghi nhớ đăng nhập
+                </Label>
               </div>
               <Button 
                 type="submit" 
