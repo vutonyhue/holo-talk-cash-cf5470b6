@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.check-email]
 verify_jwt = false
+
+[functions.claim-reward]
+verify_jwt = false
+
+[functions.check-eligibility]
+verify_jwt = false

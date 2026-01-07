@@ -7,9 +7,11 @@ import {
   Gift,
   Check,
   Clock,
-  Lock
+  Lock,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import type { RewardWithStatus } from '@/hooks/useRewards';
 
 const iconMap: Record<string, React.ElementType> = {
@@ -23,9 +25,11 @@ const iconMap: Record<string, React.ElementType> = {
 
 interface RewardCardProps {
   reward: RewardWithStatus;
+  onClaim?: (taskId: string) => void;
+  claiming?: boolean;
 }
 
-export function RewardCard({ reward }: RewardCardProps) {
+export function RewardCard({ reward, onClaim, claiming }: RewardCardProps) {
   const Icon = iconMap[reward.icon] || Gift;
   
   const statusConfig = {
@@ -50,8 +54,8 @@ export function RewardCard({ reward }: RewardCardProps) {
       border: 'border-amber-500/30',
       icon: Gift,
       iconColor: 'text-amber-500',
-      badge: 'Sẵn sàng nhận',
-      badgeColor: 'bg-amber-500/20 text-amber-600',
+      badge: null,
+      badgeColor: '',
     },
     claimed: {
       bg: 'bg-gradient-to-r from-primary/10 to-pink-500/10',
@@ -74,6 +78,7 @@ export function RewardCard({ reward }: RewardCardProps) {
   const config = statusConfig[reward.status];
   const StatusIcon = config.icon;
   const isCompleted = ['completed', 'claimed', 'paid'].includes(reward.status);
+  const canClaim = reward.status === 'completed';
 
   return (
     <div
@@ -82,7 +87,7 @@ export function RewardCard({ reward }: RewardCardProps) {
         'hover:shadow-md hover:scale-[1.01]',
         config.bg,
         config.border,
-        reward.status === 'completed' && 'animate-pulse'
+        canClaim && 'animate-pulse'
       )}
     >
       {/* Icon */}
@@ -137,25 +142,45 @@ export function RewardCard({ reward }: RewardCardProps) {
         )}
       </div>
 
-      {/* Reward Amount */}
+      {/* Reward Amount & Action */}
       <div className="flex items-center gap-2">
-        <div className="text-right">
-          <div className={cn(
-            'font-bold text-lg',
-            isCompleted ? 'text-primary' : 'text-muted-foreground'
-          )}>
-            {reward.reward_amount.toLocaleString()}
-          </div>
-          <div className="text-xs text-muted-foreground">CAMLY</div>
-        </div>
-        
-        {/* Status Icon */}
-        <div className={cn(
-          'flex items-center justify-center w-8 h-8 rounded-full',
-          isCompleted ? 'bg-primary/10' : 'bg-muted'
-        )}>
-          <StatusIcon className={cn('w-4 h-4', config.iconColor)} />
-        </div>
+        {canClaim ? (
+          <Button
+            size="sm"
+            onClick={() => onClaim?.(reward.id)}
+            disabled={claiming}
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg"
+          >
+            {claiming ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Gift className="w-4 h-4 mr-1" />
+                Nhận {reward.reward_amount.toLocaleString()}
+              </>
+            )}
+          </Button>
+        ) : (
+          <>
+            <div className="text-right">
+              <div className={cn(
+                'font-bold text-lg',
+                isCompleted ? 'text-primary' : 'text-muted-foreground'
+              )}>
+                {reward.reward_amount.toLocaleString()}
+              </div>
+              <div className="text-xs text-muted-foreground">CAMLY</div>
+            </div>
+            
+            {/* Status Icon */}
+            <div className={cn(
+              'flex items-center justify-center w-8 h-8 rounded-full',
+              isCompleted ? 'bg-primary/10' : 'bg-muted'
+            )}>
+              <StatusIcon className={cn('w-4 h-4', config.iconColor)} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
