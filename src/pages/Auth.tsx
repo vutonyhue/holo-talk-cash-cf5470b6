@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
 import { PasswordInput } from '@/components/auth/PasswordInput';
 import { UsernameInput } from '@/components/auth/UsernameInput';
+import { EmailInput } from '@/components/auth/EmailInput';
 
 const emailSchema = z.string().email('Email không hợp lệ');
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
@@ -32,6 +33,9 @@ export default function Auth() {
   const [username, setUsername] = useState('');
   const [isUsernameValid, setIsUsernameValid] = useState(false);
   const [isUsernameAvailable, setIsUsernameAvailable] = useState<boolean | null>(null);
+  const [isEmailValid, setIsEmailValid] = useState(false);
+  const [isEmailAvailable, setIsEmailAvailable] = useState<boolean | null>(null);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => {
     return localStorage.getItem('rememberMe') === 'true';
   });
@@ -148,6 +152,12 @@ export default function Auth() {
   const handleUsernameValidityChange = useCallback((isValid: boolean, isAvailable: boolean | null) => {
     setIsUsernameValid(isValid);
     setIsUsernameAvailable(isAvailable);
+  }, []);
+
+  const handleEmailValidityChange = useCallback((isValid: boolean, isAvailable: boolean | null, isChecking: boolean) => {
+    setIsEmailValid(isValid);
+    setIsEmailAvailable(isAvailable);
+    setIsCheckingEmail(isChecking);
   }, []);
 
   const handleGoogleLogin = async () => {
@@ -323,18 +333,13 @@ export default function Auth() {
                 onValidityChange={handleUsernameValidityChange}
                 required
               />
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="email@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-12"
-                  required
-                />
-              </div>
+              <EmailInput
+                value={email}
+                onChange={setEmail}
+                onValidityChange={handleEmailValidityChange}
+                mode="signup"
+                required
+              />
               <div className="space-y-2">
                 <Label htmlFor="signup-password">Mật khẩu</Label>
                 <PasswordInput
@@ -348,7 +353,12 @@ export default function Auth() {
               <Button 
                 type="submit" 
                 className="w-full h-12 text-lg font-semibold gradient-primary btn-3d"
-                disabled={isLoading || !isUsernameValid || isUsernameAvailable !== true}
+                disabled={
+                  isLoading || 
+                  !isUsernameValid || isUsernameAvailable !== true ||
+                  !isEmailValid || isEmailAvailable !== true ||
+                  isCheckingEmail
+                }
               >
                 {isLoading ? 'Đang xử lý...' : 'Tạo tài khoản'}
               </Button>

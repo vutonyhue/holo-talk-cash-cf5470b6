@@ -446,6 +446,7 @@ export type Database = {
           avatar_url: string | null
           created_at: string | null
           display_name: string | null
+          email: string | null
           id: string
           last_seen: string | null
           status: string | null
@@ -457,6 +458,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string | null
           display_name?: string | null
+          email?: string | null
           id: string
           last_seen?: string | null
           status?: string | null
@@ -468,6 +470,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string | null
           display_name?: string | null
+          email?: string | null
           id?: string
           last_seen?: string | null
           status?: string | null
@@ -477,12 +480,48 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limits: {
+        Row: {
+          action_type: string
+          count: number | null
+          created_at: string | null
+          id: string
+          identifier: string
+          window_start: string | null
+        }
+        Insert: {
+          action_type: string
+          count?: number | null
+          created_at?: string | null
+          id?: string
+          identifier: string
+          window_start?: string | null
+        }
+        Update: {
+          action_type?: string
+          count?: number | null
+          created_at?: string | null
+          id?: string
+          identifier?: string
+          window_start?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       get_my_conversation_ids: { Args: never; Returns: string[] }
+      rl_increment: {
+        Args: {
+          p_action_type: string
+          p_identifier: string
+          p_limit: number
+          p_window_seconds: number
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
