@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { MessageCircle, Sparkles } from 'lucide-react';
 import { z } from 'zod';
 import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 
 const emailSchema = z.string().email('Email không hợp lệ');
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
@@ -210,13 +211,10 @@ export default function Auth() {
                     Quên mật khẩu?
                   </button>
                 </div>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
-                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-12"
                   required
                 />
               </div>
@@ -257,14 +255,11 @@ export default function Auth() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Mật khẩu</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
+                <Label htmlFor="signup-password">Mật khẩu</Label>
+                <PasswordInput
+                  id="signup-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-12"
                   required
                 />
                 <PasswordStrengthIndicator password={password} />

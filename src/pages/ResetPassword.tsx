@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { KeyRound, Sparkles } from 'lucide-react';
 import { z } from 'zod';
 import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
+import { PasswordInput } from '@/components/auth/PasswordInput';
 
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
 
@@ -152,26 +153,20 @@ export default function ResetPassword() {
           <form onSubmit={handleResetPassword} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="password">Mật khẩu mới</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
-                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-12"
                 required
               />
               <PasswordStrengthIndicator password={password} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm-password">Xác nhận mật khẩu</Label>
-              <Input
+              <PasswordInput
                 id="confirm-password"
-                type="password"
-                placeholder="••••••••"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="h-12"
                 required
               />
             </div>
