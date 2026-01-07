@@ -9,6 +9,8 @@ import Auth from "./pages/Auth";
 import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
+import ApiKeys from "./pages/ApiKeys";
+import ApiDocs from "./pages/ApiDocs";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +28,8 @@ const App = () => (
             <Route path="/chat" element={<Chat />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/api-keys" element={<ApiKeys />} />
+            <Route path="/api-docs" element={<ApiDocs />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

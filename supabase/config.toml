@@ -1,1 +1,16 @@
 project_id = "dgeadmmbkvcsgizsnbpi"
+
+[functions.api-keys]
+verify_jwt = false
+
+[functions.api-chat]
+verify_jwt = false
+
+[functions.api-users]
+verify_jwt = false
+
+[functions.api-calls]
+verify_jwt = false
+
+[functions.api-crypto]
+verify_jwt = false
