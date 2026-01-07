@@ -1,10 +1,12 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Gift, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useRewards } from '@/hooks/useRewards';
 import { RewardCard } from '@/components/rewards/RewardCard';
-import { useEffect } from 'react';
+import { ConfettiCelebration } from '@/components/rewards/ConfettiCelebration';
+import { toast } from 'sonner';
 
 const categoryNames: Record<string, string> = {
   onboarding: '🚀 Khởi đầu',
@@ -19,6 +21,8 @@ export default function Rewards() {
   const { user, loading: authLoading } = useAuth();
   const { 
     loading, 
+    claiming,
+    claimReward,
     totalEarned, 
     totalPending, 
     completedCount, 
@@ -26,11 +30,30 @@ export default function Rewards() {
     groupedByCategory 
   } = useRewards();
 
+  const [showConfetti, setShowConfetti] = useState(false);
+
   useEffect(() => {
     if (!authLoading && !user) {
       navigate('/auth');
     }
   }, [user, authLoading, navigate]);
+
+  const handleClaim = async (taskId: string) => {
+    const result = await claimReward(taskId);
+    
+    if (result.success) {
+      setShowConfetti(true);
+      toast.success(
+        <div className="flex items-center gap-2">
+          <Gift className="w-5 h-5 text-amber-500" />
+          <span>+{result.reward_amount?.toLocaleString()} CAMLY!</span>
+        </div>,
+        { duration: 4000 }
+      );
+    } else {
+      toast.error(result.error || 'Không thể nhận thưởng');
+    }
+  };
 
   if (authLoading || loading) {
     return (
@@ -45,6 +68,11 @@ export default function Rewards() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ConfettiCelebration 
+        trigger={showConfetti} 
+        onComplete={() => setShowConfetti(false)} 
+      />
+
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="max-w-2xl mx-auto px-4 py-4">
@@ -98,13 +126,13 @@ export default function Rewards() {
                 {completedCount}/{totalTasks} nhiệm vụ hoàn thành
               </span>
               <span className="font-medium">
-                {Math.round((completedCount / totalTasks) * 100)}%
+                {totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0}%
               </span>
             </div>
             <div className="h-3 bg-background/50 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-gradient-to-r from-primary via-pink-500 to-amber-500 rounded-full transition-all duration-500"
-                style={{ width: `${(completedCount / totalTasks) * 100}%` }}
+                style={{ width: `${totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0}%` }}
               />
             </div>
           </div>
@@ -138,7 +166,12 @@ export default function Rewards() {
               </h3>
               <div className="space-y-2">
                 {rewards.map(reward => (
-                  <RewardCard key={reward.id} reward={reward} />
+                  <RewardCard 
+                    key={reward.id} 
+                    reward={reward}
+                    onClaim={handleClaim}
+                    claiming={claiming === reward.id}
+                  />
                 ))}
               </div>
             </div>

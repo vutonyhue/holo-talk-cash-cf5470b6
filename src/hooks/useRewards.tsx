@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -37,11 +37,100 @@ export interface RewardWithStatus extends RewardTask {
   status: 'locked' | 'pending' | 'completed' | 'claimed' | 'paid';
 }
 
+export interface ClaimResult {
+  success: boolean;
+  reward_amount?: number;
+  task_name?: string;
+  error?: string;
+}
+
 export function useRewards() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [tasks, setTasks] = useState<RewardTask[]>([]);
   const [userRewards, setUserRewards] = useState<UserReward[]>([]);
   const [loading, setLoading] = useState(true);
+  const [claiming, setClaiming] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    if (!user) return;
+    
+    const [tasksRes, rewardsRes] = await Promise.all([
+      supabase
+        .from('reward_tasks')
+        .select('*')
+        .order('sort_order'),
+      supabase
+        .from('user_rewards')
+        .select('*')
+        .eq('user_id', user.id)
+    ]);
+
+    if (tasksRes.data) {
+      setTasks(tasksRes.data as RewardTask[]);
+    }
+    
+    if (rewardsRes.data) {
+      setUserRewards(rewardsRes.data as UserReward[]);
+    }
+  }, [user]);
+
+  // Check eligibility for auto-completable tasks
+  const checkEligibility = useCallback(async () => {
+    if (!session?.access_token) return;
+
+    try {
+      await supabase.functions.invoke('check-eligibility', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+      // Refresh data after checking eligibility
+      await fetchData();
+    } catch (error) {
+      console.error('Error checking eligibility:', error);
+    }
+  }, [session?.access_token, fetchData]);
+
+  // Claim a reward
+  const claimReward = useCallback(async (taskId: string): Promise<ClaimResult> => {
+    if (!session?.access_token) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    setClaiming(taskId);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('claim-reward', {
+        body: { task_id: taskId },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+
+      if (error) {
+        console.error('Claim error:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (data?.error) {
+        return { success: false, error: data.error };
+      }
+
+      // Refresh data after successful claim
+      await fetchData();
+
+      return {
+        success: true,
+        reward_amount: data.reward_amount,
+        task_name: data.task_name
+      };
+    } catch (error) {
+      console.error('Claim error:', error);
+      return { success: false, error: 'Failed to claim reward' };
+    } finally {
+      setClaiming(null);
+    }
+  }, [session?.access_token, fetchData]);
 
   useEffect(() => {
     if (!user) {
@@ -51,32 +140,14 @@ export function useRewards() {
       return;
     }
 
-    const fetchData = async () => {
+    const init = async () => {
       setLoading(true);
-      
-      const [tasksRes, rewardsRes] = await Promise.all([
-        supabase
-          .from('reward_tasks')
-          .select('*')
-          .order('sort_order'),
-        supabase
-          .from('user_rewards')
-          .select('*')
-          .eq('user_id', user.id)
-      ]);
-
-      if (tasksRes.data) {
-        setTasks(tasksRes.data as RewardTask[]);
-      }
-      
-      if (rewardsRes.data) {
-        setUserRewards(rewardsRes.data as UserReward[]);
-      }
-      
+      await fetchData();
+      await checkEligibility();
       setLoading(false);
     };
 
-    fetchData();
+    init();
 
     // Subscribe to realtime changes
     const channel = supabase
@@ -98,7 +169,7 @@ export function useRewards() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, fetchData, checkEligibility]);
 
   const getRewardsWithStatus = (): RewardWithStatus[] => {
     return tasks.map(task => {
@@ -159,6 +230,9 @@ export function useRewards() {
     tasks,
     userRewards,
     loading,
+    claiming,
+    claimReward,
+    checkEligibility,
     getRewardsWithStatus,
     getTaskStatus,
     totalEarned,
