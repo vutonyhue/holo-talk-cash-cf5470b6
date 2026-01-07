@@ -44,11 +44,6 @@ interface ApiKey {
   created_at: string;
   expires_at: string | null;
 }
-  is_active: boolean;
-  last_used_at: string | null;
-  created_at: string;
-  expires_at: string | null;
-}
 
 export default function ApiKeys() {
   const { user, loading: authLoading } = useAuth();
@@ -90,7 +85,7 @@ export default function ApiKeys() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setApiKeys(data || []);
+      setApiKeys((data || []) as ApiKey[]);
     } catch (error: any) {
       toast({
         title: "Error",
