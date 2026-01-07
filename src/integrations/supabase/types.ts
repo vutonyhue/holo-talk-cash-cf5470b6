@@ -507,6 +507,104 @@ export type Database = {
         }
         Relationships: []
       }
+      reward_tasks: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          description_en: string
+          description_vi: string
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          max_claims: number | null
+          name_en: string
+          name_vi: string
+          requires_verification: boolean | null
+          reward_amount: number
+          sort_order: number | null
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          description_en: string
+          description_vi: string
+          icon?: string | null
+          id: string
+          is_active?: boolean | null
+          max_claims?: number | null
+          name_en: string
+          name_vi: string
+          requires_verification?: boolean | null
+          reward_amount: number
+          sort_order?: number | null
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          description_en?: string
+          description_vi?: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_claims?: number | null
+          name_en?: string
+          name_vi?: string
+          requires_verification?: boolean | null
+          reward_amount?: number
+          sort_order?: number | null
+        }
+        Relationships: []
+      }
+      user_rewards: {
+        Row: {
+          claimed_at: string | null
+          completed_at: string | null
+          created_at: string | null
+          id: string
+          paid_at: string | null
+          progress: Json | null
+          status: string
+          task_id: string
+          tx_hash: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          id?: string
+          paid_at?: string | null
+          progress?: Json | null
+          status?: string
+          task_id: string
+          tx_hash?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          id?: string
+          paid_at?: string | null
+          progress?: Json | null
+          status?: string
+          task_id?: string
+          tx_hash?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_rewards_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "reward_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

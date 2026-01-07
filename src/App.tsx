@@ -13,6 +13,7 @@ import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import ApiKeys from "./pages/ApiKeys";
 import ApiDocs from "./pages/ApiDocs";
+import Rewards from "./pages/Rewards";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/settings" element={<Settings />} />
             <Route path="/api-keys" element={<ApiKeys />} />
             <Route path="/api-docs" element={<ApiDocs />} />
+            <Route path="/rewards" element={<Rewards />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
