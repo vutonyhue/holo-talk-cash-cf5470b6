@@ -8,12 +8,14 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
+  isEmailVerified: boolean;
   signUp: (email: string, password: string, username: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signInWithGitHub: () => Promise<{ error: Error | null }>;
   signInWithDiscord: () => Promise<{ error: Error | null }>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
+  resendVerificationEmail: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
 }
@@ -148,6 +150,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
+  const resendVerificationEmail = async () => {
+    if (!user?.email) return { error: new Error('No email found') };
+    
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: user.email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/`
+      }
+    });
+    
+    return { error: error as Error | null };
+  };
+
+  const isEmailVerified = !!user?.email_confirmed_at;
+
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
@@ -183,12 +201,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session, 
       profile, 
       loading, 
+      isEmailVerified,
       signUp, 
       signIn, 
       signInWithGoogle,
       signInWithGitHub,
       signInWithDiscord,
       resetPassword,
+      resendVerificationEmail,
       signOut, 
       updateProfile 
     }}>
