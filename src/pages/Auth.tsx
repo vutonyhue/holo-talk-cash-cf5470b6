@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,15 @@ import { MessageCircle, Sparkles } from 'lucide-react';
 import { z } from 'zod';
 import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
 import { PasswordInput } from '@/components/auth/PasswordInput';
+import { UsernameInput } from '@/components/auth/UsernameInput';
 
 const emailSchema = z.string().email('Email không hợp lệ');
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
-const usernameSchema = z.string().min(3, 'Username phải có ít nhất 3 ký tự').regex(/^[a-zA-Z0-9_]+$/, 'Username chỉ được chứa chữ, số và _');
+// Username: 3-20 chars, lowercase alphanumeric + underscore, no leading/trailing/consecutive underscores
+const usernameSchema = z.string()
+  .min(3, 'Username phải có ít nhất 3 ký tự')
+  .max(20, 'Username tối đa 20 ký tự')
+  .regex(/^[a-z0-9]+(_[a-z0-9]+)*$/, 'Username không hợp lệ');
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -25,6 +30,8 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [isUsernameValid, setIsUsernameValid] = useState(false);
+  const [isUsernameAvailable, setIsUsernameAvailable] = useState<boolean | null>(null);
   const [rememberMe, setRememberMe] = useState(() => {
     return localStorage.getItem('rememberMe') === 'true';
   });
@@ -86,10 +93,13 @@ export default function Auth() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Normalize username to lowercase
+    const normalizedUsername = username.trim().toLowerCase();
+    
     try {
       emailSchema.parse(email);
       passwordSchema.parse(password);
-      usernameSchema.parse(username);
+      usernameSchema.parse(normalizedUsername);
     } catch (err) {
       if (err instanceof z.ZodError) {
         toast({
@@ -101,14 +111,26 @@ export default function Auth() {
       }
     }
 
+    // Check username availability one more time
+    if (!isUsernameValid || isUsernameAvailable !== true) {
+      toast({
+        title: 'Lỗi',
+        description: 'Username không hợp lệ hoặc đã được sử dụng',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsLoading(true);
-    const { error } = await signUp(email, password, username);
+    const { error } = await signUp(email, password, normalizedUsername);
     setIsLoading(false);
 
     if (error) {
       let message = 'Đăng ký thất bại';
       if (error.message.includes('already registered')) {
         message = 'Email này đã được sử dụng';
+      } else if (error.message.includes('username') || error.message.includes('duplicate') || error.message.includes('unique')) {
+        message = 'Username đã được sử dụng';
       }
       toast({
         title: 'Lỗi',
@@ -122,6 +144,11 @@ export default function Auth() {
       });
     }
   };
+
+  const handleUsernameValidityChange = useCallback((isValid: boolean, isAvailable: boolean | null) => {
+    setIsUsernameValid(isValid);
+    setIsUsernameAvailable(isAvailable);
+  }, []);
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
@@ -290,18 +317,12 @@ export default function Auth() {
 
           {mode === 'signup' && (
             <form onSubmit={handleSignup} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="username_vui"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="h-12"
-                  required
-                />
-              </div>
+              <UsernameInput
+                value={username}
+                onChange={setUsername}
+                onValidityChange={handleUsernameValidityChange}
+                required
+              />
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -327,7 +348,7 @@ export default function Auth() {
               <Button 
                 type="submit" 
                 className="w-full h-12 text-lg font-semibold gradient-primary btn-3d"
-                disabled={isLoading}
+                disabled={isLoading || !isUsernameValid || isUsernameAvailable !== true}
               >
                 {isLoading ? 'Đang xử lý...' : 'Tạo tài khoản'}
               </Button>
