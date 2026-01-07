@@ -201,10 +201,27 @@ export function useConversations() {
     return { data: convData, error: null };
   };
 
+  const deleteConversation = async (conversationId: string) => {
+    if (!user) return { error: new Error('Not logged in') };
+
+    const { error } = await supabase
+      .from('conversation_members')
+      .delete()
+      .eq('conversation_id', conversationId)
+      .eq('user_id', user.id);
+
+    if (!error) {
+      setConversations(prev => prev.filter(c => c.id !== conversationId));
+    }
+
+    return { error };
+  };
+
   return {
     conversations,
     loading,
     fetchConversations,
     createConversation,
+    deleteConversation,
   };
 }

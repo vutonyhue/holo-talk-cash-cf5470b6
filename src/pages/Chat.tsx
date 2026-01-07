@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 export default function Chat() {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading, isEmailVerified } = useAuth();
-  const { conversations, loading: convsLoading, createConversation } = useConversations();
+  const { conversations, loading: convsLoading, createConversation, deleteConversation } = useConversations();
   const isMobile = useIsMobile();
   
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -48,6 +48,13 @@ export default function Chat() {
     const result = await createConversation(memberIds, name, isGroup);
     if (result.data) {
       setSelectedConversationId(result.data.id);
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId: string) => {
+    await deleteConversation(conversationId);
+    if (selectedConversationId === conversationId) {
+      setSelectedConversationId(null);
     }
   };
 
@@ -146,6 +153,7 @@ export default function Chat() {
             onVideoCall={handleVideoCall}
             onVoiceCall={handleVoiceCall}
             onBack={isMobile ? () => setSelectedConversationId(null) : undefined}
+            onDeleteConversation={handleDeleteConversation}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gradient-chat">
