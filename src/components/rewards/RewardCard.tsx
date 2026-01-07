@@ -13,6 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { RewardWithStatus } from '@/hooks/useRewards';
+import { ReferralCodeCard } from './ReferralCodeCard';
 
 const iconMap: Record<string, React.ElementType> = {
   'user-plus': UserPlus,
@@ -30,6 +31,44 @@ interface RewardCardProps {
 }
 
 export function RewardCard({ reward, onClaim, claiming }: RewardCardProps) {
+  // Special case: invite_friends shows ReferralCodeCard
+  if (reward.id === 'invite_friends') {
+    return (
+      <div className="space-y-3">
+        <ReferralCodeCard 
+          progress={reward.userReward?.progress as { invited?: number; required?: number } | undefined}
+          rewardAmount={reward.reward_amount}
+        />
+        {reward.status === 'completed' && (
+          <Button
+            onClick={() => onClaim?.(reward.id)}
+            disabled={claiming}
+            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-lg"
+          >
+            {claiming ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <Gift className="w-4 h-4 mr-2" />
+            )}
+            Nhận {reward.reward_amount.toLocaleString()} CAMLY
+          </Button>
+        )}
+        {reward.status === 'claimed' && (
+          <div className="text-center text-sm text-primary font-medium flex items-center justify-center gap-1">
+            <Check className="w-4 h-4" />
+            Đã nhận thưởng
+          </div>
+        )}
+        {reward.status === 'paid' && (
+          <div className="text-center text-sm text-emerald-500 font-medium flex items-center justify-center gap-1">
+            <Check className="w-4 h-4" />
+            Đã thanh toán
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const Icon = iconMap[reward.icon] || Gift;
   
   const statusConfig = {
@@ -121,25 +160,6 @@ export function RewardCard({ reward, onClaim, claiming }: RewardCardProps) {
         <p className="text-sm text-muted-foreground truncate">
           {reward.description_vi}
         </p>
-        
-        {/* Progress for invite_friends */}
-        {reward.id === 'invite_friends' && reward.userReward?.progress && (
-          <div className="mt-2">
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-primary rounded-full transition-all"
-                  style={{ 
-                    width: `${((reward.userReward.progress.invited || 0) / 3) * 100}%` 
-                  }}
-                />
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {reward.userReward.progress.invited || 0}/3
-              </span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Reward Amount & Action */}

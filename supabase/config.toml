@@ -1,12 +1,46 @@
 project_id = "dgeadmmbkvcsgizsnbpi"
 
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://localhost"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://dgeadmmbkvcsgizsnbpi.supabase.co"]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+[functions.check-username]
+verify_jwt = false
+
+[functions.check-email]
+verify_jwt = false
+
 [functions.api-keys]
 verify_jwt = false
 
-[functions.api-chat]
+[functions.api-users]
 verify_jwt = false
 
-[functions.api-users]
+[functions.api-chat]
 verify_jwt = false
 
 [functions.api-calls]
@@ -15,14 +49,14 @@ verify_jwt = false
 [functions.api-crypto]
 verify_jwt = false
 
-[functions.check-username]
-verify_jwt = false
-
-[functions.check-email]
-verify_jwt = false
-
 [functions.claim-reward]
 verify_jwt = false
 
 [functions.check-eligibility]
+verify_jwt = false
+
+[functions.get-referral-code]
+verify_jwt = false
+
+[functions.use-referral-code]
 verify_jwt = false
