@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { MessageCircle, Sparkles, KeyRound } from 'lucide-react';
+import { KeyRound, Sparkles } from 'lucide-react';
 import { z } from 'zod';
+import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
 
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
 
@@ -160,6 +161,7 @@ export default function ResetPassword() {
                 className="h-12"
                 required
               />
+              <PasswordStrengthIndicator password={password} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm-password">Xác nhận mật khẩu</Label>

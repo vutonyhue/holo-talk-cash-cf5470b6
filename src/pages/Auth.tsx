@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { MessageCircle, Sparkles } from 'lucide-react';
 import { z } from 'zod';
+import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
 
 const emailSchema = z.string().email('Email không hợp lệ');
 const passwordSchema = z.string().min(6, 'Mật khẩu phải có ít nhất 6 ký tự');
@@ -266,6 +267,7 @@ export default function Auth() {
                   className="h-12"
                   required
                 />
+                <PasswordStrengthIndicator password={password} />
               </div>
               <Button 
                 type="submit" 
