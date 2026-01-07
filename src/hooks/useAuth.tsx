@@ -25,6 +25,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Check if session should be cleared (user didn't select "Remember Me")
+    const checkTempSession = async () => {
+      const wasTempSession = sessionStorage.getItem('tempSession');
+      const shouldRemember = localStorage.getItem('rememberMe') === 'true';
+      
+      if (wasTempSession && !shouldRemember) {
+        // Clear the temp session marker and sign out
+        sessionStorage.removeItem('tempSession');
+        await supabase.auth.signOut();
+      }
+    };
+
+    checkTempSession();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
