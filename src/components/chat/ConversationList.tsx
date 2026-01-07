@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { MessageCircle, Plus, Search, Settings, LogOut, User } from 'lucide-react';
+import { MessageCircle, Plus, Search, Settings, LogOut, User, Gift } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,6 +93,10 @@ export default function ConversationList({
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 Cài đặt
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/rewards')}>
+                <Gift className="mr-2 h-4 w-4" />
+                Nhiệm vụ thưởng
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut} className="text-destructive">

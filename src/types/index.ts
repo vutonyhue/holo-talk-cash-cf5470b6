@@ -77,3 +77,34 @@ export interface CallParticipant {
   joined_at: string | null;
   left_at: string | null;
 }
+
+export interface RewardTask {
+  id: string;
+  name_vi: string;
+  name_en: string;
+  description_vi: string;
+  description_en: string;
+  reward_amount: number;
+  icon: string;
+  category: string;
+  sort_order: number;
+  is_active: boolean;
+  requires_verification: boolean;
+  max_claims: number;
+  created_at: string;
+}
+
+export interface UserReward {
+  id: string;
+  user_id: string;
+  task_id: string;
+  status: 'pending' | 'completed' | 'claimed' | 'paid';
+  progress: Record<string, any>;
+  completed_at: string | null;
+  claimed_at: string | null;
+  paid_at: string | null;
+  tx_hash: string | null;
+  created_at: string;
+  updated_at: string;
+  task?: RewardTask;
+}
