@@ -46,7 +46,7 @@ interface ApiKey {
 }
 
 export default function ApiKeys() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, isEmailVerified } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -68,8 +68,10 @@ export default function ApiKeys() {
   useEffect(() => {
     if (!authLoading && !user) {
       navigate("/auth");
+    } else if (!authLoading && user && !isEmailVerified) {
+      navigate("/verify-email");
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, isEmailVerified, navigate]);
 
   useEffect(() => {
     if (user) {

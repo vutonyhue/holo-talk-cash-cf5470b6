@@ -19,7 +19,7 @@ type Language = 'vi' | 'en';
 
 export default function Settings() {
   const navigate = useNavigate();
-  const { user, loading } = useAuth();
+  const { user, loading, isEmailVerified } = useAuth();
   
   // Theme state
   const [theme, setTheme] = useState<Theme>(() => {
@@ -60,12 +60,14 @@ export default function Settings() {
     localStorage.setItem('language', language);
   }, [language]);
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated or not verified
   useEffect(() => {
     if (!loading && !user) {
       navigate('/auth');
+    } else if (!loading && user && !isEmailVerified) {
+      navigate('/verify-email');
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, isEmailVerified, navigate]);
 
   if (loading) {
     return (

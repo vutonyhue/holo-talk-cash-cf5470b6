@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 
 export default function Chat() {
   const navigate = useNavigate();
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, isEmailVerified } = useAuth();
   const { conversations, loading: convsLoading, createConversation } = useConversations();
   const isMobile = useIsMobile();
   
@@ -39,8 +39,10 @@ export default function Chat() {
   useEffect(() => {
     if (!authLoading && !user) {
       navigate('/auth');
+    } else if (!authLoading && user && !isEmailVerified) {
+      navigate('/verify-email');
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, isEmailVerified, navigate]);
 
   const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean) => {
     const result = await createConversation(memberIds, name, isGroup);

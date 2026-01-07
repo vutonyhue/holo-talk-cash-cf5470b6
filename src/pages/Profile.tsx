@@ -14,7 +14,7 @@ import QRCode from "react-qr-code";
 import TransactionHistory from "@/components/wallet/TransactionHistory";
 
 const Profile = () => {
-  const { user, profile, loading, updateProfile } = useAuth();
+  const { user, profile, loading, updateProfile, isEmailVerified } = useAuth();
   const { isConnected, address, bnbBalance, camlyBalance, connect, disconnect, shortenAddress } = useWallet();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,8 +29,10 @@ const Profile = () => {
   useEffect(() => {
     if (!loading && !user) {
       navigate("/auth");
+    } else if (!loading && user && !isEmailVerified) {
+      navigate("/verify-email");
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, isEmailVerified, navigate]);
 
   useEffect(() => {
     if (profile) {
