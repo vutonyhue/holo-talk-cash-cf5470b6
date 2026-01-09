@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Trash2, Sparkles, MoreVertical } from 'lucide-react';
+import { Bot, Send, Trash2, Sparkles, MoreVertical, ImagePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,7 +29,7 @@ interface AIChatWindowProps {
 }
 
 export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatWindowProps) {
-  const { messages, isLoading, sendMessage, clearHistory } = useAIChat();
+  const { messages, isLoading, isGeneratingImage, sendMessage, clearHistory } = useAIChat();
   const [input, setInput] = useState('');
   const [showClearDialog, setShowClearDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -52,7 +52,7 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
   }, [onSuggestion, onSuggestionUsed]);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isGeneratingImage) return;
     const message = input;
     setInput('');
     await sendMessage(message);
@@ -135,6 +135,19 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
                 </div>
               </div>
             )}
+            {isGeneratingImage && (
+              <div className="flex gap-3 max-w-[85%]">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-4 h-4 text-white" />
+                </div>
+                <div className="bg-muted rounded-2xl rounded-tl-md px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <ImagePlus className="w-4 h-4 text-violet-500 animate-pulse" />
+                    <span className="text-sm text-muted-foreground">Đang tạo hình ảnh...</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </ScrollArea>
@@ -151,13 +164,13 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
               placeholder="Nhập tin nhắn cho AI..."
               className="min-h-[44px] max-h-32 resize-none pr-12 rounded-2xl"
               rows={1}
-              disabled={isLoading}
+              disabled={isLoading || isGeneratingImage}
             />
             <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-violet-500 opacity-50" />
           </div>
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim() || isLoading || isGeneratingImage}
             size="icon"
             className={cn(
               "rounded-full h-11 w-11 flex-shrink-0",
@@ -167,6 +180,9 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
             <Send className="w-5 h-5" />
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mt-2 text-center">
+          💡 Gợi ý: Dùng "tạo hình" hoặc "vẽ" để AI tạo hình ảnh
+        </p>
       </div>
 
       {/* Clear History Dialog */}

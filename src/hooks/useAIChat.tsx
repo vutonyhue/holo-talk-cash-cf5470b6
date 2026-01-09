@@ -5,15 +5,29 @@ export interface AIMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  imageUrl?: string;
   timestamp: Date;
 }
 
 const STORAGE_KEY = 'funchat-ai-history';
 const AI_CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
+const AI_IMAGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-image`;
+
+const IMAGE_KEYWORDS = [
+  'tạo hình', 'vẽ', 'tạo ảnh', 'generate image', 'create image',
+  'draw', 'paint', 'make image', 'tạo một hình', 'vẽ cho tôi',
+  'thiết kế', 'minh họa', 'illustration', 'tạo hình ảnh'
+];
+
+const isImageRequest = (content: string): boolean => {
+  const lowerContent = content.toLowerCase();
+  return IMAGE_KEYWORDS.some(keyword => lowerContent.includes(keyword));
+};
 
 export function useAIChat() {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const { toast } = useToast();
 
   // Load history from localStorage on mount
@@ -43,8 +57,51 @@ export function useAIChat() {
     }
   }, [messages]);
 
+  const generateImage = useCallback(async (content: string, userMessage: AIMessage) => {
+    setIsGeneratingImage(true);
+
+    try {
+      const resp = await fetch(AI_IMAGE_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ prompt: content }),
+      });
+
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({}));
+        throw new Error(errorData.error || `Error: ${resp.status}`);
+      }
+
+      const { text, imageUrl } = await resp.json();
+
+      const assistantMessage: AIMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: text || 'Đây là hình ảnh bạn yêu cầu.',
+        imageUrl: imageUrl,
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Image generation error:', error);
+      toast({
+        title: 'Lỗi',
+        description: error instanceof Error ? error.message : 'Không thể tạo hình ảnh',
+        variant: 'destructive',
+      });
+      // Remove the user message if failed
+      setMessages(prev => prev.filter(m => m.id !== userMessage.id));
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }, [toast]);
+
   const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim() || isLoading) return;
+    if (!content.trim() || isLoading || isGeneratingImage) return;
 
     const userMessage: AIMessage = {
       id: crypto.randomUUID(),
@@ -54,6 +111,13 @@ export function useAIChat() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+
+    // Check if this is an image generation request
+    if (isImageRequest(content)) {
+      await generateImage(content, userMessage);
+      return;
+    }
+
     setIsLoading(true);
 
     let assistantContent = '';
@@ -167,7 +231,7 @@ export function useAIChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, toast]);
+  }, [messages, isLoading, isGeneratingImage, toast, generateImage]);
 
   const clearHistory = useCallback(() => {
     setMessages([]);
@@ -178,5 +242,5 @@ export function useAIChat() {
     });
   }, [toast]);
 
-  return { messages, isLoading, sendMessage, clearHistory };
+  return { messages, isLoading, isGeneratingImage, sendMessage, clearHistory };
 }
