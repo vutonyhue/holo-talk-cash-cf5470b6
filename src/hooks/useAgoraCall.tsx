@@ -404,12 +404,22 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       agoraLog.info('Tracks', 'Creating local tracks', { isVideoCall });
       const tracks: (ICameraVideoTrack | IMicrophoneAudioTrack)[] = [];
       
+      // Get saved device preferences
+      const savedMicrophone = localStorage.getItem('preferredMicrophone');
+      const savedCamera = localStorage.getItem('preferredCamera');
+      agoraLog.debug('Tracks', 'Device preferences from settings', { savedMicrophone, savedCamera });
+      
       try {
         const audioStart = Date.now();
-        const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        const audioTrack = await AgoraRTC.createMicrophoneAudioTrack(
+          savedMicrophone ? { microphoneId: savedMicrophone } : undefined
+        );
         localAudioTrackRef.current = audioTrack;
         tracks.push(audioTrack);
-        agoraLog.success('Tracks', 'Audio track created', { time: `${Date.now() - audioStart}ms` });
+        agoraLog.success('Tracks', 'Audio track created', { 
+          time: `${Date.now() - audioStart}ms`,
+          microphoneId: savedMicrophone || 'default'
+        });
       } catch (audioErr: any) {
         agoraLog.error('Tracks', 'Failed to create audio track', { 
           error: audioErr?.message,
@@ -421,10 +431,15 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       if (isVideoCall) {
         try {
           const videoStart = Date.now();
-          const videoTrack = await AgoraRTC.createCameraVideoTrack();
+          const videoTrack = await AgoraRTC.createCameraVideoTrack(
+            savedCamera ? { cameraId: savedCamera } : undefined
+          );
           localVideoTrackRef.current = videoTrack;
           tracks.push(videoTrack);
-          agoraLog.success('Tracks', 'Video track created', { time: `${Date.now() - videoStart}ms` });
+          agoraLog.success('Tracks', 'Video track created', { 
+            time: `${Date.now() - videoStart}ms`,
+            cameraId: savedCamera || 'default'
+          });
         } catch (videoErr: any) {
           agoraLog.error('Tracks', 'Failed to create video track', { 
             error: videoErr?.message,
