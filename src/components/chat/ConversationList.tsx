@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Conversation } from '@/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -8,14 +7,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { MessageCircle, Plus, Search, Settings, LogOut, User, Gift } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { MessageCircle, Plus, Search } from 'lucide-react';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -30,8 +22,7 @@ export default function ConversationList({
   onSelect,
   onNewChat,
 }: ConversationListProps) {
-  const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const { profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
   const getConversationName = (conv: Conversation) => {
@@ -59,54 +50,10 @@ export default function ConversationList({
 
   return (
     <div className="h-full flex flex-col bg-sidebar">
-      {/* Header */}
+      {/* Header - Simplified for sidebar layout */}
       <div className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-3d">
-              <MessageCircle className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <h1 className="text-xl font-bold text-gradient">FunChat</h1>
-          </div>
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-xl">
-                <Avatar className="w-9 h-9">
-                  <AvatarImage src={profile?.avatar_url || undefined} />
-                  <AvatarFallback className="gradient-accent text-accent-foreground text-sm font-semibold">
-                    {profile?.display_name?.slice(0, 2).toUpperCase() || 'U'}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-3 py-2">
-                <p className="font-semibold">{profile?.display_name}</p>
-                <p className="text-sm text-muted-foreground">@{profile?.username}</p>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/profile')}>
-                <User className="mr-2 h-4 w-4" />
-                Hồ sơ
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/settings')}>
-                <Settings className="mr-2 h-4 w-4" />
-                Cài đặt
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/rewards')}>
-                <Gift className="mr-2 h-4 w-4" />
-                Nhiệm vụ thưởng
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={signOut} className="text-destructive">
-                <LogOut className="mr-2 h-4 w-4" />
-                Đăng xuất
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
+        <h2 className="text-xl font-bold mb-4">Đoạn chat</h2>
+        
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
