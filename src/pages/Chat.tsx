@@ -356,7 +356,7 @@ export default function Chat() {
       {/* Mobile: Main Chat Area */}
       <div className={cn(
         "md:hidden flex-1 flex flex-col transition-transform duration-300 ease-out",
-        "absolute inset-0 w-full bg-background",
+        "absolute inset-0 w-full bg-background pb-16",
         selectedConversation ? "translate-x-0" : "translate-x-full"
       )}>
         {renderMainView()}
