@@ -1,4 +1,4 @@
-import { Bot, Sparkles } from 'lucide-react';
+import { Bot, Sparkles, ImagePlus } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface AIChatPanelProps {
@@ -12,6 +12,14 @@ const suggestions = [
   { emoji: '✨', text: 'Tạo ý tưởng sáng tạo' },
   { emoji: '💻', text: 'Giúp tôi viết code' },
   { emoji: '📝', text: 'Tóm tắt nội dung dài' },
+];
+
+const imageSuggestions = [
+  { emoji: '🐱', text: 'Vẽ một chú mèo dễ thương' },
+  { emoji: '🌅', text: 'Tạo hình phong cảnh biển hoàng hôn' },
+  { emoji: '🏔️', text: 'Vẽ núi tuyết phủ mây' },
+  { emoji: '🚀', text: 'Tạo hình tàu vũ trụ tương lai' },
+  { emoji: '🌸', text: 'Vẽ vườn hoa anh đào Nhật Bản' },
 ];
 
 export default function AIChatPanel({ onSuggestionClick }: AIChatPanelProps) {
@@ -51,13 +59,37 @@ export default function AIChatPanel({ onSuggestionClick }: AIChatPanelProps) {
             <div className="flex-1 h-px bg-border" />
           </div>
 
-          {/* Suggestions */}
+          {/* Text Suggestions */}
           <div className="space-y-2">
             {suggestions.map((suggestion, index) => (
               <button
                 key={index}
                 onClick={() => onSuggestionClick?.(suggestion.text)}
                 className="w-full text-left px-4 py-3 rounded-xl bg-muted/50 hover:bg-muted transition-colors"
+              >
+                <span className="mr-2">{suggestion.emoji}</span>
+                <span className="text-sm">{suggestion.text}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Image Generation Divider */}
+          <div className="flex items-center gap-2 py-2">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <ImagePlus className="w-3 h-3" />
+              Tạo hình ảnh
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          {/* Image Suggestions */}
+          <div className="space-y-2">
+            {imageSuggestions.map((suggestion, index) => (
+              <button
+                key={index}
+                onClick={() => onSuggestionClick?.(suggestion.text)}
+                className="w-full text-left px-4 py-3 rounded-xl bg-gradient-to-r from-violet-500/10 to-purple-500/10 hover:from-violet-500/20 hover:to-purple-500/20 border border-violet-500/20 transition-colors"
               >
                 <span className="mr-2">{suggestion.emoji}</span>
                 <span className="text-sm">{suggestion.text}</span>
