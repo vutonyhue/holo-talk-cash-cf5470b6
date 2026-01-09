@@ -11,14 +11,23 @@ serve(async (req) => {
   }
 
   try {
-    const { prompt } = await req.json();
+    const { prompt, sourceImageUrl } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    console.log("Generating image with prompt:", prompt);
+    const isEditing = !!sourceImageUrl;
+    console.log(isEditing ? "Editing image with prompt:" : "Generating image with prompt:", prompt);
+
+    // Build message content - either text only or text + image for editing
+    const messageContent = isEditing 
+      ? [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: sourceImageUrl } }
+        ]
+      : prompt;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -29,7 +38,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-2.5-flash-image-preview",
         messages: [
-          { role: "user", content: prompt }
+          { role: "user", content: messageContent }
         ],
         modalities: ["image", "text"]
       }),
@@ -50,7 +59,7 @@ serve(async (req) => {
       }
       const errorText = await response.text();
       console.error("AI gateway error:", response.status, errorText);
-      return new Response(JSON.stringify({ error: "Lỗi khi tạo hình ảnh" }), {
+      return new Response(JSON.stringify({ error: "Lỗi khi xử lý hình ảnh" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -60,7 +69,7 @@ serve(async (req) => {
     console.log("AI response received");
 
     const message = data.choices?.[0]?.message;
-    const text = message?.content || "Đây là hình ảnh bạn yêu cầu.";
+    const text = message?.content || (isEditing ? "Đã chỉnh sửa hình ảnh theo yêu cầu." : "Đây là hình ảnh bạn yêu cầu.");
     const imageUrl = message?.images?.[0]?.image_url?.url || null;
 
     return new Response(JSON.stringify({ text, imageUrl }), {
