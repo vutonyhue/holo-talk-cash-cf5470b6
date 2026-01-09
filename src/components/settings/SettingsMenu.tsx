@@ -230,6 +230,7 @@ export default function SettingsMenu({ onClose }: SettingsMenuProps) {
             iconColor="bg-gradient-to-br from-orange-500 to-red-500"
             title="Video và thoại"
             subtitle="Camera, micro và loa"
+            onClick={() => navigate('/settings/video-voice')}
           />
 
           {/* Notifications */}

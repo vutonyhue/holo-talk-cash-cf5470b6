@@ -12,6 +12,7 @@ import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
 import UserProfile from "./pages/UserProfile";
 import Settings from "./pages/Settings";
+import VideoVoiceSettings from "./pages/VideoVoiceSettings";
 import ApiKeys from "./pages/ApiKeys";
 import ApiDocs from "./pages/ApiDocs";
 import Rewards from "./pages/Rewards";
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="/profile" element={<Profile />} />
             <Route path="/profile/:userId" element={<UserProfile />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/video-voice" element={<VideoVoiceSettings />} />
             <Route path="/api-keys" element={<ApiKeys />} />
             <Route path="/api-docs" element={<ApiDocs />} />
             <Route path="/rewards" element={<Rewards />} />
