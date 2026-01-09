@@ -24,7 +24,7 @@ const imageSuggestions = [
 
 export default function AIChatPanel({ onSuggestionClick }: AIChatPanelProps) {
   return (
-    <div className="flex flex-col h-full bg-sidebar">
+    <div className="flex flex-col h-full w-full bg-sidebar">
       {/* Header */}
       <div className="h-16 flex items-center px-4 border-b border-sidebar-border">
         <h2 className="font-semibold text-lg">Meta AI</h2>

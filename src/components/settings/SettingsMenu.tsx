@@ -119,7 +119,7 @@ export default function SettingsMenu({ onClose }: SettingsMenuProps) {
   const ThemeIcon = getThemeIcon();
 
   return (
-    <div className="h-full flex flex-col bg-sidebar">
+    <div className="h-full w-full flex flex-col bg-sidebar">
       {/* Header */}
       <div className="p-4 border-b border-sidebar-border">
         <h2 className="text-xl font-bold mb-4">Cài đặt</h2>
