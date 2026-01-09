@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWallet } from "@/hooks/useWallet";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, Loader2, Save, User, Wallet, Copy, ExternalLink, CheckCircle, QrCode } from "lucide-react";
+import { ArrowLeft, Camera, Loader2, Save, User, Wallet, Copy, ExternalLink, CheckCircle, QrCode, Phone } from "lucide-react";
 import QRCode from "react-qr-code";
 import TransactionHistory from "@/components/wallet/TransactionHistory";
 
@@ -22,6 +22,7 @@ const Profile = () => {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,6 +40,8 @@ const Profile = () => {
       setDisplayName(profile.display_name || "");
       setUsername(profile.username || "");
       setWalletAddress(profile.wallet_address || "");
+      // Use type assertion for phone_number since it's a new column
+      setPhoneNumber((profile as any).phone_number || "");
       setAvatarUrl(profile.avatar_url || "");
     }
   }, [profile]);
@@ -119,7 +122,8 @@ const Profile = () => {
         display_name: displayName.trim() || null,
         username: username.trim(),
         wallet_address: walletAddress.trim() || null,
-      });
+        phone_number: phoneNumber.trim() || null,
+      } as any);
       toast.success("Cập nhật thông tin thành công!");
     } catch (error: any) {
       toast.error("Lỗi: " + error.message);
@@ -223,6 +227,25 @@ const Profile = () => {
                   placeholder="Nhập username..."
                   className="bg-white/10 border-white/20 text-white placeholder:text-white/50"
                 />
+              </div>
+
+              {/* Phone Number */}
+              <div className="space-y-2">
+                <Label htmlFor="phoneNumber" className="text-white flex items-center gap-2">
+                  <Phone className="w-4 h-4" />
+                  Số điện thoại
+                </Label>
+                <Input
+                  id="phoneNumber"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="+84 xxx xxx xxx"
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/50"
+                />
+                <p className="text-white/50 text-xs">
+                  Số điện thoại để người khác có thể gọi cho bạn trong ứng dụng
+                </p>
               </div>
 
               {/* Wallet Section */}

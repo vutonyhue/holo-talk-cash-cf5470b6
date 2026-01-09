@@ -455,6 +455,7 @@ export type Database = {
           email: string | null
           id: string
           last_seen: string | null
+          phone_number: string | null
           referred_by: string | null
           status: string | null
           updated_at: string | null
@@ -468,6 +469,7 @@ export type Database = {
           email?: string | null
           id: string
           last_seen?: string | null
+          phone_number?: string | null
           referred_by?: string | null
           status?: string | null
           updated_at?: string | null
@@ -481,6 +483,7 @@ export type Database = {
           email?: string | null
           id?: string
           last_seen?: string | null
+          phone_number?: string | null
           referred_by?: string | null
           status?: string | null
           updated_at?: string | null
