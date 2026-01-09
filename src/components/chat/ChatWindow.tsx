@@ -98,6 +98,8 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [initialScrollDone, setInitialScrollDone] = useState(false);
 
   // Extract all images from messages for lightbox navigation
   const allImages = useMemo<LightboxImage[]>(() => {
@@ -150,11 +152,27 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     fetchMuteStatus();
   }, [conversation.id, user]);
 
+  // Reset scroll flag when conversation changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    setInitialScrollDone(false);
+  }, [conversation.id]);
+
+  // Initial scroll when opening conversation (instant, no animation)
+  useEffect(() => {
+    if (!loading && messages.length > 0 && !initialScrollDone) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+      setInitialScrollDone(true);
     }
-  }, [messages]);
+  }, [loading, messages.length, initialScrollDone]);
+
+  // Scroll on new messages (smooth animation)
+  useEffect(() => {
+    if (initialScrollDone && messages.length > 0) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [messages.length, initialScrollDone]);
 
   // Mark messages as read when they are displayed
   useEffect(() => {
@@ -538,6 +556,9 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
                 </span>
               </div>
             )}
+            
+            {/* Scroll anchor - invisible element at the end */}
+            <div ref={messagesEndRef} />
           </div>
         )}
       </ScrollArea>
