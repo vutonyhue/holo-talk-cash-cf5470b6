@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 
 export default function Chat() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, profile, loading: authLoading, isEmailVerified } = useAuth();
   const { conversations, loading: convsLoading, createConversation, deleteConversation } = useConversations();
   const isMobile = useIsMobile();
@@ -43,6 +44,16 @@ export default function Chat() {
       navigate('/verify-email');
     }
   }, [user, authLoading, isEmailVerified, navigate]);
+
+  // Auto-select conversation when navigated from UserProfile
+  useEffect(() => {
+    const stateConversationId = (location.state as { conversationId?: string })?.conversationId;
+    if (stateConversationId && !convsLoading) {
+      setSelectedConversationId(stateConversationId);
+      // Clear state to prevent re-selection on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, convsLoading]);
 
   const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean) => {
     const result = await createConversation(memberIds, name, isGroup);
