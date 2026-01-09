@@ -176,7 +176,7 @@ export default function CallHistory() {
   });
 
   return (
-    <div className="h-full flex flex-col bg-sidebar">
+    <div className="h-full w-full flex flex-col bg-sidebar">
       {/* Header */}
       <div className="p-4 border-b border-sidebar-border">
         <h2 className="text-xl font-bold mb-4">Cuộc gọi</h2>

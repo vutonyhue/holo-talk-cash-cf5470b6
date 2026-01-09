@@ -49,7 +49,7 @@ export default function ConversationList({
   });
 
   return (
-    <div className="h-full flex flex-col bg-sidebar">
+    <div className="h-full w-full flex flex-col bg-sidebar">
       {/* Header - Simplified for sidebar layout */}
       <div className="p-4 border-b border-sidebar-border">
         <h2 className="text-xl font-bold mb-4">Đoạn chat</h2>

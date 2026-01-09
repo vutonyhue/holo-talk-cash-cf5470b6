@@ -23,7 +23,7 @@ export default function ComingSoon({ type }: ComingSoonProps) {
   const { icon: Icon, title, description, gradient } = config[type];
 
   return (
-    <div className="h-full flex flex-col items-center justify-center p-8 bg-sidebar">
+    <div className="h-full w-full flex flex-col items-center justify-center p-8 bg-sidebar">
       <div className="relative mb-6">
         <div className={`w-20 h-20 rounded-3xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-float animate-float`}>
           <Icon className="w-10 h-10 text-white" />
