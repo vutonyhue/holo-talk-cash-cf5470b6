@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { 
@@ -13,9 +15,14 @@ import {
   PhoneIncoming, 
   PhoneOutgoing, 
   PhoneMissed,
-  Clock
+  Clock,
+  Keyboard
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DialPad } from '@/components/call/DialPad';
+import { PhoneCallDialog } from '@/components/call/PhoneCallDialog';
+import { usePhoneSearch } from '@/hooks/usePhoneSearch';
+import { toast } from 'sonner';
 
 interface CallRecord {
   id: string;
@@ -41,11 +48,24 @@ interface CallRecord {
   } | null;
 }
 
-export default function CallHistory() {
+interface CallHistoryProps {
+  onStartCall?: (conversationId: string, callType: 'video' | 'voice') => void;
+}
+
+export default function CallHistory({ onStartCall }: CallHistoryProps) {
   const { profile } = useAuth();
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // DialPad state
+  const [showDialPad, setShowDialPad] = useState(false);
+  const [showCallConfirm, setShowCallConfirm] = useState(false);
+  const [foundProfile, setFoundProfile] = useState<any>(null);
+  const [pendingCallType, setPendingCallType] = useState<'voice' | 'video'>('voice');
+  const [isConnecting, setIsConnecting] = useState(false);
+  
+  const { searchByPhone, isSearching, error: searchError, clearError } = usePhoneSearch();
 
   useEffect(() => {
     const fetchCalls = async () => {
@@ -175,11 +195,108 @@ export default function CallHistory() {
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
+  // Handle phone dial
+  const handlePhoneDial = async (phoneNumber: string, callType: 'voice' | 'video') => {
+    clearError();
+    
+    // Check if calling self - use type assertion since phone_number is new column
+    const currentPhoneNumber = (profile as any)?.phone_number;
+    if (currentPhoneNumber === phoneNumber) {
+      toast.error('Không thể gọi cho chính mình');
+      return;
+    }
+    
+    const result = await searchByPhone(phoneNumber);
+    
+    if (result) {
+      if (result.id === profile?.id) {
+        toast.error('Không thể gọi cho chính mình');
+        return;
+      }
+      setFoundProfile(result);
+      setPendingCallType(callType);
+      setShowDialPad(false);
+      setShowCallConfirm(true);
+    } else if (searchError) {
+      toast.error(searchError);
+    }
+  };
+
+  // Handle confirm call
+  const handleConfirmCall = async () => {
+    if (!foundProfile || !onStartCall) return;
+    
+    setIsConnecting(true);
+    
+    try {
+      // Find or create conversation with this user
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select(`
+          id,
+          conversation_members!inner(user_id)
+        `)
+        .eq('is_group', false)
+        .eq('conversation_members.user_id', foundProfile.id)
+        .limit(1)
+        .single();
+
+      let conversationId: string;
+
+      if (existingConv) {
+        conversationId = existingConv.id;
+      } else {
+        // Create new conversation
+        const { data: newConv, error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            is_group: false,
+            created_by: profile?.id
+          })
+          .select()
+          .single();
+
+        if (convError) throw convError;
+
+        // Add both members
+        await supabase
+          .from('conversation_members')
+          .insert([
+            { conversation_id: newConv.id, user_id: profile?.id },
+            { conversation_id: newConv.id, user_id: foundProfile.id }
+          ]);
+
+        conversationId = newConv.id;
+      }
+
+      // Start the call
+      onStartCall(conversationId, pendingCallType);
+      setShowCallConfirm(false);
+      setFoundProfile(null);
+    } catch (err: any) {
+      console.error('Error starting call:', err);
+      toast.error('Không thể bắt đầu cuộc gọi');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   return (
     <div className="h-full w-full flex flex-col bg-sidebar">
       {/* Header */}
       <div className="p-4 border-b border-sidebar-border">
-        <h2 className="text-xl font-bold mb-4">Cuộc gọi</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Cuộc gọi</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setShowDialPad(true)}
+          >
+            <Keyboard className="w-4 h-4" />
+            Bàn phím
+          </Button>
+        </div>
         
         {/* Search */}
         <div className="relative">
@@ -267,6 +384,27 @@ export default function CallHistory() {
           )}
         </div>
       </ScrollArea>
+
+      {/* DialPad Dialog */}
+      <Dialog open={showDialPad} onOpenChange={setShowDialPad}>
+        <DialogContent className="sm:max-w-md p-0 h-[600px] max-h-[90vh]">
+          <DialPad
+            onCall={handlePhoneDial}
+            onClose={() => setShowDialPad(false)}
+            isSearching={isSearching}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Call Confirmation Dialog */}
+      <PhoneCallDialog
+        open={showCallConfirm}
+        onOpenChange={setShowCallConfirm}
+        profile={foundProfile}
+        callType={pendingCallType}
+        onConfirmCall={handleConfirmCall}
+        isLoading={isConnecting}
+      />
     </div>
   );
 }

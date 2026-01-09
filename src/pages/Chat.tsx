@@ -133,6 +133,11 @@ export default function Chat() {
     await endCall();
   };
 
+  // Handler for starting call from DialPad/CallHistory
+  const handleStartCall = async (conversationId: string, callType: 'video' | 'voice') => {
+    await startCall(conversationId, callType);
+  };
+
   const getParticipantInfo = () => {
     const conv = activeCall 
       ? conversations.find(c => c.id === activeCall.conversation_id) 
@@ -167,7 +172,7 @@ export default function Chat() {
           />
         );
       case 'calls':
-        return <CallHistory />;
+        return <CallHistory onStartCall={handleStartCall} />;
       case 'settings':
         return <SettingsMenu />;
       case 'community':
