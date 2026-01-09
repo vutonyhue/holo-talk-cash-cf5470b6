@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
@@ -14,6 +14,8 @@ import SettingsMenu from '@/components/settings/SettingsMenu';
 import NewChatDialog from '@/components/chat/NewChatDialog';
 import VideoCallModal from '@/components/chat/VideoCallModal';
 import { IncomingCallModal } from '@/components/chat/IncomingCallModal';
+import AIChatPanel from '@/components/ai/AIChatPanel';
+import AIChatWindow from '@/components/ai/AIChatWindow';
 import { MessageCircle, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -31,6 +33,15 @@ export default function Chat() {
   const [showNewChat, setShowNewChat] = useState(false);
   const [activeTab, setActiveTab] = useState<SidebarTab>('chat');
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+
+  const handleAiSuggestion = useCallback((suggestion: string) => {
+    setAiSuggestion(suggestion);
+  }, []);
+
+  const clearAiSuggestion = useCallback(() => {
+    setAiSuggestion(null);
+  }, []);
 
   // Call signaling
   const {
@@ -161,7 +172,7 @@ export default function Chat() {
       case 'community':
         return <ComingSoon type="community" />;
       case 'ai':
-        return <ComingSoon type="ai" />;
+        return <AIChatPanel onSuggestionClick={handleAiSuggestion} />;
       default:
         return null;
     }
@@ -169,21 +180,27 @@ export default function Chat() {
 
   // Render main view based on active tab
   const renderMainView = () => {
-    // For community and ai tabs, show coming soon in main view too
-    if (activeTab === 'community' || activeTab === 'ai') {
+    // For AI tab, show AI chat window
+    if (activeTab === 'ai') {
+      return (
+        <AIChatWindow 
+          onSuggestion={aiSuggestion}
+          onSuggestionUsed={clearAiSuggestion}
+        />
+      );
+    }
+
+    // For community tab, show coming soon
+    if (activeTab === 'community') {
       return (
         <div className="flex-1 flex items-center justify-center gradient-chat">
           <div className="text-center max-w-md p-8">
             <div className="w-24 h-24 rounded-3xl gradient-primary flex items-center justify-center shadow-float animate-float mx-auto mb-6">
               <Sparkles className="w-12 h-12 text-primary-foreground" />
             </div>
-            <h2 className="text-2xl font-bold text-gradient mb-2">
-              {activeTab === 'community' ? 'Cộng đồng FunChat' : 'Meta AI'}
-            </h2>
+            <h2 className="text-2xl font-bold text-gradient mb-2">Cộng đồng FunChat</h2>
             <p className="text-muted-foreground">
-              {activeTab === 'community' 
-                ? 'Tính năng cộng đồng đang được phát triển. Bạn sẽ có thể tham gia nhóm và kênh sớm!' 
-                : 'Trợ lý AI thông minh sẽ sớm có mặt để hỗ trợ bạn!'}
+              Tính năng cộng đồng đang được phát triển. Bạn sẽ có thể tham gia nhóm và kênh sớm!
             </p>
           </div>
         </div>
