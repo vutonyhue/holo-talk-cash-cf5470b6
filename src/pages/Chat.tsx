@@ -16,6 +16,7 @@ import VideoCallModal from '@/components/chat/VideoCallModal';
 import { IncomingCallModal } from '@/components/chat/IncomingCallModal';
 import AIChatPanel from '@/components/ai/AIChatPanel';
 import AIChatWindow from '@/components/ai/AIChatWindow';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { MessageCircle, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -310,11 +311,29 @@ export default function Chat() {
         />
       </div>
 
-      {/* Content Panel - Desktop */}
-      <div className={cn(
-        "hidden md:flex border-r border-sidebar-border flex-shrink-0 w-80 lg:w-96"
-      )}>
-        {renderContentPanel()}
+      {/* Desktop: Resizable Panels */}
+      <div className="hidden md:flex flex-1 h-full">
+        <ResizablePanelGroup direction="horizontal">
+          {/* Content Panel - Resizable */}
+          <ResizablePanel 
+            defaultSize={25} 
+            minSize={15} 
+            maxSize={40}
+            className="border-r border-sidebar-border"
+          >
+            {renderContentPanel()}
+          </ResizablePanel>
+
+          {/* Resize Handle */}
+          <ResizableHandle withHandle className="hover:bg-primary/20 transition-colors" />
+
+          {/* Main Chat Area */}
+          <ResizablePanel defaultSize={75} minSize={50}>
+            <div className="h-full flex flex-col">
+              {renderMainView()}
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
 
       {/* Mobile: Content Panel */}
@@ -334,13 +353,11 @@ export default function Chat() {
         {mobileTab === 'settings' && <SettingsMenu />}
       </div>
 
-      {/* Main Chat Area */}
+      {/* Mobile: Main Chat Area */}
       <div className={cn(
-        "flex-1 flex flex-col transition-transform duration-300 ease-out",
-        isMobile && cn(
-          "absolute inset-0 w-full bg-background",
-          selectedConversation ? "translate-x-0" : "translate-x-full"
-        )
+        "md:hidden flex-1 flex flex-col transition-transform duration-300 ease-out",
+        "absolute inset-0 w-full bg-background",
+        selectedConversation ? "translate-x-0" : "translate-x-full"
       )}>
         {renderMainView()}
       </div>
