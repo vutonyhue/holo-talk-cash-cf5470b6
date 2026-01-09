@@ -60,3 +60,6 @@ verify_jwt = false
 
 [functions.use-referral-code]
 verify_jwt = false
+
+[functions.ai-chat]
+verify_jwt = false
