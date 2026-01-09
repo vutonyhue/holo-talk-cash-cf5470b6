@@ -35,7 +35,6 @@ export default function Chat() {
   const [activeTab, setActiveTab] = useState<SidebarTab>('chat');
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   const handleAiSuggestion = useCallback((suggestion: string) => {
     setAiSuggestion(suggestion);
@@ -309,8 +308,6 @@ export default function Chat() {
         <AppSidebar
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
       </div>
 
