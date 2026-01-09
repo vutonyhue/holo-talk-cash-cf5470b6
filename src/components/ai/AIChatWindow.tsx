@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Trash2, Sparkles, MoreVertical, ImagePlus } from 'lucide-react';
+import { Bot, Send, Trash2, Sparkles, MoreVertical, ImagePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,7 +29,16 @@ interface AIChatWindowProps {
 }
 
 export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatWindowProps) {
-  const { messages, isLoading, isGeneratingImage, sendMessage, clearHistory } = useAIChat();
+  const { 
+    messages, 
+    isLoading, 
+    isGeneratingImage, 
+    editingImageUrl,
+    sendMessage, 
+    clearHistory,
+    startEditingImage,
+    cancelEditingImage
+  } = useAIChat();
   const [input, setInput] = useState('');
   const [showClearDialog, setShowClearDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -51,6 +60,13 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
     }
   }, [onSuggestion, onSuggestionUsed]);
 
+  // Focus input when editing mode starts
+  useEffect(() => {
+    if (editingImageUrl) {
+      textareaRef.current?.focus();
+    }
+  }, [editingImageUrl]);
+
   const handleSend = async () => {
     if (!input.trim() || isLoading || isGeneratingImage) return;
     const message = input;
@@ -62,6 +78,9 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+    if (e.key === 'Escape' && editingImageUrl) {
+      cancelEditingImage();
     }
   };
 
@@ -109,7 +128,7 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
               Mình là FunChat AI. Hãy hỏi mình bất cứ điều gì - từ câu hỏi đơn giản đến những vấn đề phức tạp!
             </p>
             <div className="flex flex-wrap justify-center gap-2">
-              {['💬 Chat', '🔍 Tìm kiếm', '✍️ Viết', '🌐 Dịch'].map((tag) => (
+              {['💬 Chat', '🔍 Tìm kiếm', '✍️ Viết', '🌐 Dịch', '🎨 Tạo ảnh'].map((tag) => (
                 <span key={tag} className="px-3 py-1.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-400 text-sm">
                   {tag}
                 </span>
@@ -119,7 +138,11 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
         ) : (
           <div className="space-y-4">
             {messages.map((message) => (
-              <AIMessageBubble key={message.id} message={message} />
+              <AIMessageBubble 
+                key={message.id} 
+                message={message} 
+                onEditImage={startEditingImage}
+              />
             ))}
             {isLoading && (
               <div className="flex gap-3 max-w-[85%]">
@@ -143,7 +166,9 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
                 <div className="bg-muted rounded-2xl rounded-tl-md px-4 py-3">
                   <div className="flex items-center gap-2">
                     <ImagePlus className="w-4 h-4 text-violet-500 animate-pulse" />
-                    <span className="text-sm text-muted-foreground">Đang tạo hình ảnh...</span>
+                    <span className="text-sm text-muted-foreground">
+                      {editingImageUrl ? 'Đang chỉnh sửa hình ảnh...' : 'Đang tạo hình ảnh...'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -154,6 +179,33 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
 
       {/* Input Area */}
       <div className="p-4 border-t border-border bg-background/80 backdrop-blur-sm">
+        {/* Edit mode indicator */}
+        {editingImageUrl && (
+          <div className="mb-3 p-3 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center gap-3">
+            <img 
+              src={editingImageUrl} 
+              alt="Editing" 
+              className="w-12 h-12 rounded-lg object-cover"
+            />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-violet-600 dark:text-violet-400">
+                Chế độ chỉnh sửa hình ảnh
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Nhập mô tả những thay đổi bạn muốn
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full h-8 w-8"
+              onClick={cancelEditingImage}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
           <div className="flex-1 relative">
             <Textarea
@@ -161,7 +213,7 @@ export default function AIChatWindow({ onSuggestion, onSuggestionUsed }: AIChatW
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Nhập tin nhắn cho AI..."
+              placeholder={editingImageUrl ? "Mô tả chỉnh sửa (VD: thêm mũ, đổi màu nền...)" : "Nhập tin nhắn cho AI..."}
               className="min-h-[44px] max-h-32 resize-none pr-12 rounded-2xl"
               rows={1}
               disabled={isLoading || isGeneratingImage}

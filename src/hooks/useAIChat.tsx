@@ -28,6 +28,7 @@ export function useAIChat() {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [editingImageUrl, setEditingImageUrl] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Load history from localStorage on mount
@@ -57,7 +58,7 @@ export function useAIChat() {
     }
   }, [messages]);
 
-  const generateImage = useCallback(async (content: string, userMessage: AIMessage) => {
+  const generateImage = useCallback(async (content: string, userMessage: AIMessage, sourceImageUrl?: string) => {
     setIsGeneratingImage(true);
 
     try {
@@ -67,7 +68,10 @@ export function useAIChat() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ prompt: content }),
+        body: JSON.stringify({ 
+          prompt: content,
+          sourceImageUrl: sourceImageUrl 
+        }),
       });
 
       if (!resp.ok) {
@@ -80,7 +84,7 @@ export function useAIChat() {
       const assistantMessage: AIMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: text || 'Đây là hình ảnh bạn yêu cầu.',
+        content: text || (sourceImageUrl ? 'Đã chỉnh sửa hình ảnh theo yêu cầu.' : 'Đây là hình ảnh bạn yêu cầu.'),
         imageUrl: imageUrl,
         timestamp: new Date(),
       };
@@ -90,13 +94,14 @@ export function useAIChat() {
       console.error('Image generation error:', error);
       toast({
         title: 'Lỗi',
-        description: error instanceof Error ? error.message : 'Không thể tạo hình ảnh',
+        description: error instanceof Error ? error.message : 'Không thể xử lý hình ảnh',
         variant: 'destructive',
       });
       // Remove the user message if failed
       setMessages(prev => prev.filter(m => m.id !== userMessage.id));
     } finally {
       setIsGeneratingImage(false);
+      setEditingImageUrl(null);
     }
   }, [toast]);
 
@@ -111,6 +116,12 @@ export function useAIChat() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+
+    // Check if we're editing an image or creating a new one
+    if (editingImageUrl) {
+      await generateImage(content, userMessage, editingImageUrl);
+      return;
+    }
 
     // Check if this is an image generation request
     if (isImageRequest(content)) {
@@ -231,7 +242,15 @@ export function useAIChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, isGeneratingImage, toast, generateImage]);
+  }, [messages, isLoading, isGeneratingImage, editingImageUrl, toast, generateImage]);
+
+  const startEditingImage = useCallback((imageUrl: string) => {
+    setEditingImageUrl(imageUrl);
+  }, []);
+
+  const cancelEditingImage = useCallback(() => {
+    setEditingImageUrl(null);
+  }, []);
 
   const clearHistory = useCallback(() => {
     setMessages([]);
@@ -242,5 +261,14 @@ export function useAIChat() {
     });
   }, [toast]);
 
-  return { messages, isLoading, isGeneratingImage, sendMessage, clearHistory };
+  return { 
+    messages, 
+    isLoading, 
+    isGeneratingImage, 
+    editingImageUrl,
+    sendMessage, 
+    clearHistory,
+    startEditingImage,
+    cancelEditingImage
+  };
 }

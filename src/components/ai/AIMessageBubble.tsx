@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Bot, User, Download } from 'lucide-react';
+import { Bot, User, Download, Pencil } from 'lucide-react';
 import { AIMessage } from '@/hooks/useAIChat';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button';
 
 interface AIMessageBubbleProps {
   message: AIMessage;
+  onEditImage?: (imageUrl: string) => void;
 }
 
-export default function AIMessageBubble({ message }: AIMessageBubbleProps) {
+export default function AIMessageBubble({ message, onEditImage }: AIMessageBubbleProps) {
   const isUser = message.role === 'user';
   const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
 
@@ -104,6 +105,18 @@ export default function AIMessageBubble({ message }: AIMessageBubbleProps) {
                 className="rounded-lg max-w-full max-h-80 object-contain cursor-pointer hover:opacity-90 transition-opacity"
                 onClick={() => setImagePreviewOpen(true)}
               />
+              {/* Edit button */}
+              {onEditImage && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 text-violet-600 hover:text-violet-700 hover:bg-violet-100 dark:text-violet-400 dark:hover:bg-violet-900/30"
+                  onClick={() => onEditImage(message.imageUrl!)}
+                >
+                  <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                  Chỉnh sửa hình ảnh
+                </Button>
+              )}
             </div>
           )}
 
@@ -126,15 +139,29 @@ export default function AIMessageBubble({ message }: AIMessageBubbleProps) {
                 alt="AI generated"
                 className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
               />
-              <Button
-                variant="secondary"
-                size="sm"
-                className="absolute bottom-4 right-4"
-                onClick={handleDownloadImage}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Tải xuống
-              </Button>
+              <div className="absolute bottom-4 right-4 flex gap-2">
+                {onEditImage && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setImagePreviewOpen(false);
+                      onEditImage(message.imageUrl!);
+                    }}
+                  >
+                    <Pencil className="w-4 h-4 mr-2" />
+                    Chỉnh sửa
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleDownloadImage}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Tải xuống
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
