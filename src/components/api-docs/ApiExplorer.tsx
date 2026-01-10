@@ -267,11 +267,12 @@ export function ApiExplorer() {
   const fetchApiKeys = async () => {
     const { data } = await supabase
       .from("api_keys")
-      .select("id, name, key_prefix, api_key")
+      .select("id, name, key_prefix, key_hash")
       .eq("is_active", true);
     
     if (data) {
-      setUserApiKeys(data);
+      // Map key_hash to api_key for backward compatibility
+      setUserApiKeys(data.map((k: any) => ({ ...k, api_key: k.key_hash })));
     }
   };
 

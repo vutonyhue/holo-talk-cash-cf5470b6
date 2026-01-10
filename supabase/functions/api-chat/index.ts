@@ -3,74 +3,124 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-funchat-api-key, x-funchat-api-key-id, x-funchat-app-id, x-funchat-user-id, x-funchat-scopes',
 };
 
-// Hash API key using SHA-256
-async function hashApiKey(key: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(key);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+function errorResponse(code: string, message: string, status: number): Response {
+  return new Response(
+    JSON.stringify({ success: false, error: { code, message } }),
+    { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
 }
 
-// Validate API key and return user info
-async function validateApiKey(req: Request, supabase: any) {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return { error: 'Missing or invalid Authorization header', status: 401 };
+function successResponse<T>(data: T, status: number = 200, meta?: Record<string, unknown>): Response {
+  return new Response(
+    JSON.stringify({ success: true, data, meta: { timestamp: new Date().toISOString(), ...meta } }),
+    { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
+// Validate API key from Worker headers
+function validateAuth(req: Request): { keyId: string; userId: string; scopes: string[] } | null {
+  const keyId = req.headers.get('x-funchat-api-key-id');
+  const userId = req.headers.get('x-funchat-user-id');
+  const scopesHeader = req.headers.get('x-funchat-scopes');
+
+  if (!keyId || !userId) {
+    return null;
   }
 
-  const apiKey = authHeader.replace('Bearer ', '');
-  
-  // Check if it's a Supabase JWT token (not an API key)
-  if (apiKey.startsWith('eyJ')) {
-    return { error: 'Use API key, not JWT token', status: 401 };
-  }
+  return {
+    keyId,
+    userId,
+    scopes: scopesHeader ? scopesHeader.split(',').map(s => s.trim()) : [],
+  };
+}
 
-  const hashedKey = await hashApiKey(apiKey);
-
-  const { data: keyData, error } = await supabase
-    .from('api_keys')
-    .select('*')
-    .eq('api_key', hashedKey)
-    .eq('is_active', true)
-    .single();
-
-  if (error || !keyData) {
-    return { error: 'Invalid API key', status: 401 };
-  }
-
-  // Check expiry
-  if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
-    return { error: 'API key has expired', status: 401 };
-  }
-
-  // Check permissions
-  if (!keyData.permissions?.chat) {
-    return { error: 'API key does not have chat permissions', status: 403 };
-  }
-
-  // Update last_used_at
-  await supabase
-    .from('api_keys')
-    .update({ last_used_at: new Date().toISOString() })
-    .eq('id', keyData.id);
-
-  return { data: keyData };
+function hasScope(scopes: string[], required: string): boolean {
+  return scopes.includes(required);
 }
 
 // Log API usage
-async function logUsage(supabase: any, apiKeyId: string, endpoint: string, method: string, statusCode: number, responseTimeMs: number, ipAddress: string) {
-  await supabase.from('api_usage_logs').insert({
-    api_key_id: apiKeyId,
-    endpoint,
-    method,
-    status_code: statusCode,
-    response_time_ms: responseTimeMs,
-    ip_address: ipAddress
-  });
+async function logUsage(
+  supabase: any, 
+  apiKeyId: string, 
+  endpoint: string, 
+  method: string, 
+  statusCode: number, 
+  responseTimeMs: number, 
+  ipAddress: string
+): Promise<void> {
+  try {
+    await supabase.from('api_usage_logs').insert({
+      api_key_id: apiKeyId,
+      endpoint,
+      method,
+      status_code: statusCode,
+      response_time_ms: responseTimeMs,
+      ip_address: ipAddress
+    });
+  } catch (e) {
+    console.error('Failed to log usage:', e);
+  }
+}
+
+// Dispatch webhook for event
+async function dispatchWebhook(
+  supabase: any,
+  apiKeyId: string,
+  event: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  try {
+    const { data: webhooks } = await supabase
+      .from('webhooks')
+      .select('*')
+      .eq('api_key_id', apiKeyId)
+      .eq('is_active', true)
+      .contains('events', [event]);
+
+    if (!webhooks || webhooks.length === 0) return;
+
+    const payload = JSON.stringify({
+      event,
+      data,
+      timestamp: new Date().toISOString(),
+      api_key_id: apiKeyId,
+    });
+
+    for (const webhook of webhooks) {
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(webhook.secret);
+      const messageData = encoder.encode(payload);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      );
+      const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+      const signatureHex = Array.from(new Uint8Array(signature))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+
+      fetch(webhook.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-FunChat-Event': event,
+          'X-FunChat-Signature': `sha256=${signatureHex}`,
+          'X-FunChat-Timestamp': Date.now().toString(),
+        },
+        body: payload,
+      }).then(async (res) => {
+        await supabase.from('webhooks').update({
+          last_triggered_at: new Date().toISOString(),
+          last_success_at: res.ok ? new Date().toISOString() : undefined,
+          last_failure_at: res.ok ? undefined : new Date().toISOString(),
+          failure_count: res.ok ? 0 : (webhook.failure_count || 0) + 1,
+        }).eq('id', webhook.id);
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('Webhook dispatch error:', e);
+  }
 }
 
 serve(async (req) => {
@@ -85,23 +135,23 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Validate API key
-    const authResult = await validateApiKey(req, supabase);
-    if (authResult.error) {
-      return new Response(
-        JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: authResult.error } }),
-        { status: authResult.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Validate authentication
+    const auth = validateAuth(req);
+    if (!auth) {
+      return errorResponse('UNAUTHORIZED', 'Invalid or missing authentication', 401);
     }
 
-    const apiKeyData = authResult.data;
-    const userId = apiKeyData.user_id;
+    const { keyId, userId, scopes } = auth;
     const url = new URL(req.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
     const ipAddress = req.headers.get('x-forwarded-for') || 'unknown';
 
     // Route: GET /api-chat/conversations
     if (req.method === 'GET' && pathParts.includes('conversations') && !pathParts.includes('messages')) {
+      if (!hasScope(scopes, 'chat:read')) {
+        return errorResponse('FORBIDDEN', 'Requires chat:read scope', 403);
+      }
+
       const conversationId = pathParts[pathParts.indexOf('conversations') + 1];
       
       if (conversationId && conversationId !== 'conversations') {
@@ -120,28 +170,19 @@ serve(async (req) => {
           .single();
 
         if (error) {
-          await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}`, 'GET', 404, Date.now() - startTime, ipAddress);
-          return new Response(
-            JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'Conversation not found' } }),
-            { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          await logUsage(supabase, keyId, `/conversations/${conversationId}`, 'GET', 404, Date.now() - startTime, ipAddress);
+          return errorResponse('NOT_FOUND', 'Conversation not found', 404);
         }
 
         // Check if user is member
         const isMember = data.members?.some((m: any) => m.user_id === userId);
         if (!isMember) {
-          await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}`, 'GET', 403, Date.now() - startTime, ipAddress);
-          return new Response(
-            JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this conversation' } }),
-            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          await logUsage(supabase, keyId, `/conversations/${conversationId}`, 'GET', 403, Date.now() - startTime, ipAddress);
+          return errorResponse('FORBIDDEN', 'Not a member of this conversation', 403);
         }
 
-        await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}`, 'GET', 200, Date.now() - startTime, ipAddress);
-        return new Response(
-          JSON.stringify({ success: true, data, meta: { timestamp: new Date().toISOString() } }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        await logUsage(supabase, keyId, `/conversations/${conversationId}`, 'GET', 200, Date.now() - startTime, ipAddress);
+        return successResponse(data);
       }
 
       // List all conversations
@@ -165,15 +206,16 @@ serve(async (req) => {
         .in('id', conversationIds)
         .order('updated_at', { ascending: false });
 
-      await logUsage(supabase, apiKeyData.id, '/conversations', 'GET', 200, Date.now() - startTime, ipAddress);
-      return new Response(
-        JSON.stringify({ success: true, data: data || [], meta: { timestamp: new Date().toISOString(), count: data?.length || 0 } }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logUsage(supabase, keyId, '/conversations', 'GET', 200, Date.now() - startTime, ipAddress);
+      return successResponse(data || [], 200, { count: data?.length || 0 });
     }
 
     // Route: POST /api-chat/conversations
     if (req.method === 'POST' && pathParts.includes('conversations') && !pathParts.includes('messages')) {
+      if (!hasScope(scopes, 'chat:write')) {
+        return errorResponse('FORBIDDEN', 'Requires chat:write scope', 403);
+      }
+
       const body = await req.json();
       const { name, is_group, member_ids } = body;
 
@@ -189,11 +231,8 @@ serve(async (req) => {
         .single();
 
       if (convError) {
-        await logUsage(supabase, apiKeyData.id, '/conversations', 'POST', 500, Date.now() - startTime, ipAddress);
-        return new Response(
-          JSON.stringify({ success: false, error: { code: 'DATABASE_ERROR', message: convError.message } }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        await logUsage(supabase, keyId, '/conversations', 'POST', 500, Date.now() - startTime, ipAddress);
+        return errorResponse('DATABASE_ERROR', convError.message, 500);
       }
 
       // Add creator as member
@@ -213,15 +252,16 @@ serve(async (req) => {
         await supabase.from('conversation_members').insert(members);
       }
 
-      await logUsage(supabase, apiKeyData.id, '/conversations', 'POST', 201, Date.now() - startTime, ipAddress);
-      return new Response(
-        JSON.stringify({ success: true, data: conversation, meta: { timestamp: new Date().toISOString() } }),
-        { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logUsage(supabase, keyId, '/conversations', 'POST', 201, Date.now() - startTime, ipAddress);
+      return successResponse(conversation, 201);
     }
 
     // Route: GET /api-chat/conversations/:id/messages
     if (req.method === 'GET' && pathParts.includes('messages')) {
+      if (!hasScope(scopes, 'chat:read')) {
+        return errorResponse('FORBIDDEN', 'Requires chat:read scope', 403);
+      }
+
       const conversationId = pathParts[pathParts.indexOf('conversations') + 1];
       const limit = parseInt(url.searchParams.get('limit') || '50');
       const offset = parseInt(url.searchParams.get('offset') || '0');
@@ -235,11 +275,8 @@ serve(async (req) => {
         .single();
 
       if (!membership) {
-        await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}/messages`, 'GET', 403, Date.now() - startTime, ipAddress);
-        return new Response(
-          JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this conversation' } }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        await logUsage(supabase, keyId, `/conversations/${conversationId}/messages`, 'GET', 403, Date.now() - startTime, ipAddress);
+        return errorResponse('FORBIDDEN', 'Not a member of this conversation', 403);
       }
 
       const { data, error } = await supabase
@@ -253,15 +290,16 @@ serve(async (req) => {
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
-      await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}/messages`, 'GET', 200, Date.now() - startTime, ipAddress);
-      return new Response(
-        JSON.stringify({ success: true, data: data || [], meta: { timestamp: new Date().toISOString(), count: data?.length || 0, limit, offset } }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      await logUsage(supabase, keyId, `/conversations/${conversationId}/messages`, 'GET', 200, Date.now() - startTime, ipAddress);
+      return successResponse(data || [], 200, { count: data?.length || 0, limit, offset });
     }
 
     // Route: POST /api-chat/conversations/:id/messages
     if (req.method === 'POST' && pathParts.includes('messages')) {
+      if (!hasScope(scopes, 'chat:write')) {
+        return errorResponse('FORBIDDEN', 'Requires chat:write scope', 403);
+      }
+
       const conversationId = pathParts[pathParts.indexOf('conversations') + 1];
       const body = await req.json();
       const { content, message_type, metadata } = body;
@@ -275,11 +313,8 @@ serve(async (req) => {
         .single();
 
       if (!membership) {
-        await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}/messages`, 'POST', 403, Date.now() - startTime, ipAddress);
-        return new Response(
-          JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this conversation' } }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        await logUsage(supabase, keyId, `/conversations/${conversationId}/messages`, 'POST', 403, Date.now() - startTime, ipAddress);
+        return errorResponse('FORBIDDEN', 'Not a member of this conversation', 403);
       }
 
       const { data, error } = await supabase
@@ -298,11 +333,8 @@ serve(async (req) => {
         .single();
 
       if (error) {
-        await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}/messages`, 'POST', 500, Date.now() - startTime, ipAddress);
-        return new Response(
-          JSON.stringify({ success: false, error: { code: 'DATABASE_ERROR', message: error.message } }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        await logUsage(supabase, keyId, `/conversations/${conversationId}/messages`, 'POST', 500, Date.now() - startTime, ipAddress);
+        return errorResponse('DATABASE_ERROR', error.message, 500);
       }
 
       // Update conversation updated_at
@@ -311,15 +343,24 @@ serve(async (req) => {
         .update({ updated_at: new Date().toISOString() })
         .eq('id', conversationId);
 
-      await logUsage(supabase, apiKeyData.id, `/conversations/${conversationId}/messages`, 'POST', 201, Date.now() - startTime, ipAddress);
-      return new Response(
-        JSON.stringify({ success: true, data, meta: { timestamp: new Date().toISOString() } }),
-        { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      // Dispatch webhook
+      await dispatchWebhook(supabase, keyId, 'message.created', {
+        message_id: data.id,
+        conversation_id: conversationId,
+        sender_id: userId,
+        content_preview: content?.substring(0, 100),
+      });
+
+      await logUsage(supabase, keyId, `/conversations/${conversationId}/messages`, 'POST', 201, Date.now() - startTime, ipAddress);
+      return successResponse(data, 201);
     }
 
     // Route: DELETE /api-chat/messages/:id
     if (req.method === 'DELETE' && pathParts.includes('messages')) {
+      if (!hasScope(scopes, 'chat:write')) {
+        return errorResponse('FORBIDDEN', 'Requires chat:write scope', 403);
+      }
+
       const messageId = pathParts[pathParts.indexOf('messages') + 1];
 
       const { data, error } = await supabase
@@ -331,30 +372,24 @@ serve(async (req) => {
         .single();
 
       if (error) {
-        await logUsage(supabase, apiKeyData.id, `/messages/${messageId}`, 'DELETE', 404, Date.now() - startTime, ipAddress);
-        return new Response(
-          JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'Message not found or not owned by user' } }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        await logUsage(supabase, keyId, `/messages/${messageId}`, 'DELETE', 404, Date.now() - startTime, ipAddress);
+        return errorResponse('NOT_FOUND', 'Message not found or not owned by user', 404);
       }
 
-      await logUsage(supabase, apiKeyData.id, `/messages/${messageId}`, 'DELETE', 200, Date.now() - startTime, ipAddress);
-      return new Response(
-        JSON.stringify({ success: true, data: { deleted: true }, meta: { timestamp: new Date().toISOString() } }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      // Dispatch webhook
+      await dispatchWebhook(supabase, keyId, 'message.deleted', {
+        message_id: messageId,
+        conversation_id: data.conversation_id,
+      });
+
+      await logUsage(supabase, keyId, `/messages/${messageId}`, 'DELETE', 200, Date.now() - startTime, ipAddress);
+      return successResponse({ deleted: true });
     }
 
-    return new Response(
-      JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'Endpoint not found' } }),
-      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return errorResponse('NOT_FOUND', 'Endpoint not found', 404);
 
   } catch (error) {
     console.error('Unexpected error:', error);
-    return new Response(
-      JSON.stringify({ success: false, error: { code: 'INTERNAL_ERROR', message: String(error) } }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return errorResponse('INTERNAL_ERROR', String(error), 500);
   }
 });

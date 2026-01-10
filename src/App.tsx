@@ -15,6 +15,7 @@ import Settings from "./pages/Settings";
 import VideoVoiceSettings from "./pages/VideoVoiceSettings";
 import ApiKeys from "./pages/ApiKeys";
 import ApiDocs from "./pages/ApiDocs";
+import DeveloperPortal from "./pages/DeveloperPortal";
 import Rewards from "./pages/Rewards";
 import NotFound from "./pages/NotFound";
 
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/settings/video-voice" element={<VideoVoiceSettings />} />
             <Route path="/api-keys" element={<ApiKeys />} />
             <Route path="/api-docs" element={<ApiDocs />} />
+            <Route path="/developer" element={<DeveloperPortal />} />
             <Route path="/rewards" element={<Rewards />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
