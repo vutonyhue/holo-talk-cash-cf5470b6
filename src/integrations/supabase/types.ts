@@ -16,42 +16,54 @@ export type Database = {
     Tables: {
       api_keys: {
         Row: {
-          api_key: string
+          allowed_origins: string[] | null
+          app_id: string | null
           created_at: string | null
           expires_at: string | null
           id: string
           is_active: boolean | null
+          key_hash: string
           key_prefix: string
+          key_salt: string
           last_used_at: string | null
           name: string
           permissions: Json | null
           rate_limit: number | null
+          scopes: string[] | null
           user_id: string
         }
         Insert: {
-          api_key: string
+          allowed_origins?: string[] | null
+          app_id?: string | null
           created_at?: string | null
           expires_at?: string | null
           id?: string
           is_active?: boolean | null
+          key_hash: string
           key_prefix: string
+          key_salt: string
           last_used_at?: string | null
           name: string
           permissions?: Json | null
           rate_limit?: number | null
+          scopes?: string[] | null
           user_id: string
         }
         Update: {
-          api_key?: string
+          allowed_origins?: string[] | null
+          app_id?: string | null
           created_at?: string | null
           expires_at?: string | null
           id?: string
           is_active?: boolean | null
+          key_hash?: string
           key_prefix?: string
+          key_salt?: string
           last_used_at?: string | null
           name?: string
           permissions?: Json | null
           rate_limit?: number | null
+          scopes?: string[] | null
           user_id?: string
         }
         Relationships: []
@@ -690,11 +702,166 @@ export type Database = {
           },
         ]
       }
+      webhook_deliveries: {
+        Row: {
+          attempt_count: number | null
+          created_at: string | null
+          delivered_at: string | null
+          error_message: string | null
+          event: string
+          id: string
+          payload: Json
+          response_body: string | null
+          response_status: number | null
+          webhook_id: string
+        }
+        Insert: {
+          attempt_count?: number | null
+          created_at?: string | null
+          delivered_at?: string | null
+          error_message?: string | null
+          event: string
+          id?: string
+          payload: Json
+          response_body?: string | null
+          response_status?: number | null
+          webhook_id: string
+        }
+        Update: {
+          attempt_count?: number | null
+          created_at?: string | null
+          delivered_at?: string | null
+          error_message?: string | null
+          event?: string
+          id?: string
+          payload?: Json
+          response_body?: string | null
+          response_status?: number | null
+          webhook_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_deliveries_webhook_id_fkey"
+            columns: ["webhook_id"]
+            isOneToOne: false
+            referencedRelation: "webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhooks: {
+        Row: {
+          api_key_id: string
+          created_at: string | null
+          events: string[] | null
+          failure_count: number | null
+          id: string
+          is_active: boolean | null
+          last_error: string | null
+          last_failure_at: string | null
+          last_success_at: string | null
+          last_triggered_at: string | null
+          max_retries: number | null
+          secret: string
+          updated_at: string | null
+          url: string
+        }
+        Insert: {
+          api_key_id: string
+          created_at?: string | null
+          events?: string[] | null
+          failure_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_error?: string | null
+          last_failure_at?: string | null
+          last_success_at?: string | null
+          last_triggered_at?: string | null
+          max_retries?: number | null
+          secret: string
+          updated_at?: string | null
+          url: string
+        }
+        Update: {
+          api_key_id?: string
+          created_at?: string | null
+          events?: string[] | null
+          failure_count?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_error?: string | null
+          last_failure_at?: string | null
+          last_success_at?: string | null
+          last_triggered_at?: string | null
+          max_retries?: number | null
+          secret?: string
+          updated_at?: string | null
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhooks_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_tokens: {
+        Row: {
+          api_key_id: string
+          conversation_id: string | null
+          created_at: string | null
+          expires_at: string
+          id: string
+          scopes: string[] | null
+          token_hash: string
+          used_at: string | null
+        }
+        Insert: {
+          api_key_id: string
+          conversation_id?: string | null
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          scopes?: string[] | null
+          token_hash: string
+          used_at?: string | null
+        }
+        Update: {
+          api_key_id?: string
+          conversation_id?: string | null
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          scopes?: string[] | null
+          token_hash?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_tokens_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_tokens_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      cleanup_expired_widget_tokens: { Args: never; Returns: undefined }
       get_my_conversation_ids: { Args: never; Returns: string[] }
       rl_increment: {
         Args: {
@@ -704,6 +871,20 @@ export type Database = {
           p_window_seconds: number
         }
         Returns: boolean
+      }
+      verify_api_key: {
+        Args: { p_key_hash: string; p_key_prefix: string }
+        Returns: {
+          allowed_origins: string[]
+          app_id: string
+          expires_at: string
+          id: string
+          is_active: boolean
+          key_salt: string
+          rate_limit: number
+          scopes: string[]
+          user_id: string
+        }[]
       }
     }
     Enums: {
