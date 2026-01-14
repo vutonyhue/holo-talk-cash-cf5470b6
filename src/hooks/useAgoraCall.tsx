@@ -68,6 +68,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   const hasJoinedRef = useRef(false);
   const eventListenersSetRef = useRef(false);
   const lastUserInfoUpdateRef = useRef<Map<string, number>>(new Map());
+  const isMountedRef = useRef(true); // Track if component is mounted
   
   const [state, setState] = useState<AgoraCallState>({
     localVideoTrack: null,
@@ -80,9 +81,24 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     error: null,
   });
 
+  // Safe setState that checks if component is still mounted
+  const safeSetState = useCallback((updater: React.SetStateAction<AgoraCallState>) => {
+    if (isMountedRef.current) {
+      setState(updater);
+    }
+  }, []);
+
   const localVideoRef = useRef<HTMLDivElement | null>(null);
   const localAudioTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const localVideoTrackRef = useRef<ICameraVideoTrack | null>(null);
+
+  // Track mount state
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Create new Agora client for each call session
   useEffect(() => {
@@ -135,12 +151,13 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     clientRef.current.on('user-published', async (user, mediaType) => {
       agoraLog.info('Events', 'User published', { uid: user.uid, mediaType, hasAudio: user.hasAudio, hasVideo: user.hasVideo });
       try {
+        if (!clientRef.current) return; // Guard against unmount
         const subscribeStart = Date.now();
-        await clientRef.current!.subscribe(user, mediaType);
+        await clientRef.current.subscribe(user, mediaType);
         agoraLog.success('Events', 'Subscribed to user', { uid: user.uid, mediaType, time: `${Date.now() - subscribeStart}ms` });
         
         // Only update state if there's an actual change to prevent infinite loops
-        setState(prev => {
+        safeSetState(prev => {
           const existingUser = prev.remoteUsers.find(u => u.uid === user.uid);
           
           // Check if we actually have new track info
@@ -182,7 +199,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
     clientRef.current.on('user-unpublished', (user, mediaType) => {
       agoraLog.info('Events', 'User unpublished', { uid: user.uid, mediaType });
-      setState(prev => ({
+      safeSetState(prev => ({
         ...prev,
         remoteUsers: prev.remoteUsers.map(u => u.uid === user.uid ? user : u),
       }));
@@ -190,7 +207,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
     clientRef.current.on('user-left', (user, reason) => {
       agoraLog.info('Events', 'User left', { uid: user.uid, reason });
-      setState(prev => ({
+      safeSetState(prev => ({
         ...prev,
         remoteUsers: prev.remoteUsers.filter(u => u.uid !== user.uid),
       }));
@@ -383,7 +400,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     }
 
     joinInProgressRef.current = true;
-    setState(prev => ({ ...prev, isConnecting: true, error: null }));
+    safeSetState(prev => ({ ...prev, isConnecting: true, error: null }));
     agoraLog.info('Join', '=== Starting join process ===', { channel: channelName, isVideoCall });
 
     try {
@@ -446,7 +463,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         }
         if (user.hasVideo) {
           await clientRef.current.subscribe(user, 'video');
-          setState(prev => ({
+          safeSetState(prev => ({
             ...prev,
             remoteUsers: [...prev.remoteUsers.filter(u => u.uid !== user.uid), user],
           }));
@@ -521,7 +538,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
       agoraLog.success('Join', '=== Join process completed ===', { totalTime: `${Date.now() - joinStartTime}ms` });
 
-      setState(prev => ({
+      safeSetState(prev => ({
         ...prev,
         localAudioTrack: localAudioTrackRef.current,
         localVideoTrack: localVideoTrackRef.current,
@@ -563,7 +580,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         errorMessage = error.message;
       }
       
-      setState(prev => ({
+      safeSetState(prev => ({
         ...prev,
         isConnecting: false,
         error: errorMessage,
@@ -614,8 +631,8 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       joinInProgressRef.current = false;
       eventListenersSetRef.current = false;
 
-      // Reset state
-      setState({
+      // Reset state - use direct setState here as this is part of cleanup
+      safeSetState({
         localVideoTrack: null,
         localAudioTrack: null,
         remoteUsers: [],
@@ -647,20 +664,20 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     if (localAudioTrackRef.current) {
       const newMutedState = !state.isMuted;
       await localAudioTrackRef.current.setEnabled(!newMutedState);
-      setState(prev => ({ ...prev, isMuted: newMutedState }));
+      safeSetState(prev => ({ ...prev, isMuted: newMutedState }));
       agoraLog.info('Controls', 'Audio mute toggled', { isMuted: newMutedState });
     }
-  }, [state.isMuted]);
+  }, [state.isMuted, safeSetState]);
 
   // Toggle video
   const toggleVideo = useCallback(async () => {
     if (localVideoTrackRef.current) {
       const newVideoOffState = !state.isVideoOff;
       await localVideoTrackRef.current.setEnabled(!newVideoOffState);
-      setState(prev => ({ ...prev, isVideoOff: newVideoOffState }));
+      safeSetState(prev => ({ ...prev, isVideoOff: newVideoOffState }));
       agoraLog.info('Controls', 'Video toggled', { isVideoOff: newVideoOffState });
     }
-  }, [state.isVideoOff]);
+  }, [state.isVideoOff, safeSetState]);
 
   // Debug info getter
   const getDebugInfo = useCallback(() => ({
