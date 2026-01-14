@@ -52,6 +52,9 @@ verify_jwt = false
 [functions.api-webhooks]
 verify_jwt = false
 
+[functions.api-rewards]
+verify_jwt = false
+
 [functions.widget-token]
 verify_jwt = false
 
