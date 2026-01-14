@@ -29,7 +29,7 @@ id = "__RATE_LIMIT_ID__"
 
 [[kv_namespaces]]
 binding = "JWKS_CACHE"
-id = "__JWKS_CACHE_ID__"
+id = "7d76aae6b6fb45618a950ce732512f03"
 
 # ============================================================================
 # Environment Variables (non-sensitive)
