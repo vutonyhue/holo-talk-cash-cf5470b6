@@ -1,0 +1,33 @@
+{
+  "name": "funchat-api-gateway",
+  "version": "1.0.0",
+  "description": "FunChat API Gateway - Cloudflare Worker for API key verification, rate limiting, and request routing",
+  "main": "src/index.ts",
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "setup:kv": "wrangler kv:namespace create API_KEY_CACHE && wrangler kv:namespace create RATE_LIMIT",
+    "setup:secrets": "wrangler secret put SUPABASE_URL && wrangler secret put SUPABASE_SERVICE_KEY",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "tail": "wrangler tail",
+    "logs": "wrangler tail --format pretty",
+    "test": "node scripts/test-api.js",
+    "kv:list": "wrangler kv:key list --binding API_KEY_CACHE",
+    "kv:clear-cache": "node scripts/clear-cache.js"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "api-gateway",
+    "funchat",
+    "rate-limiting"
+  ],
+  "author": "FunChat",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.22.4"
+  }
+}

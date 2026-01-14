@@ -1,0 +1,72 @@
+# FunChat API Gateway - Cloudflare Worker Configuration
+# See: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "funchat-api-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Account ID (optional - will use logged in account)
+# account_id = "your-account-id"
+
+# Workers Logs - enable for debugging
+# [observability]
+# enabled = true
+
+# ============================================================================
+# KV Namespaces
+# ============================================================================
+# Run `npm run setup:kv` to create these, then update the IDs below
+# Or run `npm run setup` for automated setup
+
+[[kv_namespaces]]
+binding = "API_KEY_CACHE"
+id = "__API_KEY_CACHE_ID__"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "__RATE_LIMIT_ID__"
+
+# ============================================================================
+# Environment Variables (non-sensitive)
+# ============================================================================
+
+[vars]
+SUPABASE_FUNCTIONS_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1"
+
+# ============================================================================
+# Secrets (set via `wrangler secret put` or `npm run setup:secrets`)
+# ============================================================================
+# SUPABASE_URL - Your Supabase project URL
+# SUPABASE_SERVICE_KEY - Your Supabase service role key
+
+# ============================================================================
+# Production Environment
+# ============================================================================
+
+[env.production]
+name = "funchat-api-gateway-prod"
+
+[[env.production.kv_namespaces]]
+binding = "API_KEY_CACHE"
+id = "__API_KEY_CACHE_PROD_ID__"
+
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "__RATE_LIMIT_PROD_ID__"
+
+[env.production.vars]
+SUPABASE_FUNCTIONS_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1"
+
+# ============================================================================
+# Routes (optional - for custom domain)
+# ============================================================================
+# routes = [
+#   { pattern = "api.funchat.io/*", zone_name = "funchat.io" }
+# ]
+
+# ============================================================================
+# Triggers (optional - for scheduled tasks)
+# ============================================================================
+# [triggers]
+# crons = ["0 * * * *"]  # Every hour
