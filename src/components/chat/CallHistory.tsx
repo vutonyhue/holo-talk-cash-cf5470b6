@@ -5,8 +5,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow, isToday, isYesterday, isThisWeek } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { 
   Phone, 
@@ -15,8 +16,9 @@ import {
   PhoneIncoming, 
   PhoneOutgoing, 
   PhoneMissed,
-  Clock,
-  Keyboard
+  UserPlus,
+  Lock,
+  PhoneCall
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DialPad } from '@/components/call/DialPad';
@@ -43,6 +45,7 @@ interface CallRecord {
         username: string;
         display_name: string | null;
         avatar_url: string | null;
+        phone_number?: string | null;
       } | null;
     }>;
   } | null;
@@ -110,7 +113,7 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
               const profilesPromises = membersData.map(async (m) => {
                 const { data: profileData } = await supabase
                   .from('profiles')
-                  .select('id, username, display_name, avatar_url')
+                  .select('id, username, display_name, avatar_url, phone_number')
                   .eq('id', m.user_id)
                   .single();
                 return {
@@ -146,24 +149,33 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     
     let icon = PhoneOutgoing;
     let iconColor = 'text-green-500';
+    let statusText = 'Đi';
     
     if (!isOutgoing) {
-      icon = isMissed ? PhoneMissed : PhoneIncoming;
-      iconColor = isMissed ? 'text-destructive' : 'text-blue-500';
+      if (isMissed) {
+        icon = PhoneMissed;
+        iconColor = 'text-destructive';
+        statusText = 'Nhỡ';
+      } else {
+        icon = PhoneIncoming;
+        iconColor = 'text-blue-500';
+        statusText = 'Đến';
+      }
     }
 
-    return { icon, iconColor, isOutgoing, isMissed };
+    return { icon, iconColor, isOutgoing, isMissed, statusText };
   };
 
   const getContactInfo = (call: CallRecord) => {
     if (!call.conversation) {
-      return { name: 'Unknown', avatar: undefined };
+      return { name: 'Unknown', avatar: undefined, phone: undefined };
     }
 
     if (call.conversation.is_group) {
       return { 
         name: call.conversation.name || 'Nhóm', 
-        avatar: undefined 
+        avatar: undefined,
+        phone: undefined
       };
     }
 
@@ -173,26 +185,30 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     
     return {
       name: otherMember?.profile?.display_name || otherMember?.profile?.username || 'Unknown',
-      avatar: otherMember?.profile?.avatar_url
+      avatar: otherMember?.profile?.avatar_url,
+      phone: otherMember?.profile?.phone_number
     };
   };
 
-  const getCallDuration = (call: CallRecord) => {
-    if (!call.started_at || !call.ended_at) return null;
+  const formatCallDate = (dateStr: string) => {
+    const date = new Date(dateStr);
     
-    const start = new Date(call.started_at).getTime();
-    const end = new Date(call.ended_at).getTime();
-    const duration = Math.floor((end - start) / 1000);
-    
-    const minutes = Math.floor(duration / 60);
-    const seconds = duration % 60;
-    
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    if (isToday(date)) {
+      return format(date, 'HH:mm');
+    } else if (isYesterday(date)) {
+      return 'Hôm qua';
+    } else if (isThisWeek(date)) {
+      return format(date, 'EEEE', { locale: vi });
+    } else {
+      return format(date, 'dd/MM/yyyy');
+    }
   };
 
   const filteredCalls = calls.filter(call => {
-    const { name } = getContactInfo(call);
-    return name.toLowerCase().includes(searchQuery.toLowerCase());
+    const { name, phone } = getContactInfo(call);
+    const query = searchQuery.toLowerCase();
+    return name.toLowerCase().includes(query) || 
+           (phone && phone.includes(searchQuery));
   });
 
   // Handle phone dial
@@ -281,20 +297,23 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     }
   };
 
+  const handleAddFavourite = () => {
+    toast.info('Tính năng yêu thích sẽ sớm ra mắt');
+  };
+
   return (
     <div className="h-full w-full flex flex-col bg-sidebar">
-      {/* Header */}
+      {/* Header - WhatsApp style */}
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold">Cuộc gọi</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
+          <Button 
+            variant="ghost" 
+            size="icon"
             onClick={() => setShowDialPad(true)}
+            className="h-9 w-9 rounded-full hover:bg-muted"
           >
-            <Keyboard className="w-4 h-4" />
-            Bàn phím
+            <PhoneCall className="w-5 h-5 text-primary" />
           </Button>
         </div>
         
@@ -302,7 +321,7 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Tìm kiếm cuộc gọi..."
+            placeholder="Tìm tên hoặc số điện thoại"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 h-10 rounded-xl bg-muted/50 border-0"
@@ -311,7 +330,26 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        {/* Favourites Section */}
+        <div className="px-2 py-3">
+          <p className="text-sm text-muted-foreground mb-2 px-2">Ưa thích</p>
+          <button 
+            onClick={handleAddFavourite}
+            className="flex items-center gap-3 p-2 w-full hover:bg-muted rounded-lg transition-colors"
+          >
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <UserPlus className="w-5 h-5 text-primary" />
+            </div>
+            <span className="text-sm font-medium">Thêm yêu thích</span>
+          </button>
+        </div>
+
+        <Separator className="mx-4" />
+
+        {/* Recent Section */}
+        <div className="px-2 py-3">
+          <p className="text-sm text-muted-foreground mb-2 px-2">Gần đây</p>
+          
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
@@ -322,60 +360,53 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
               <p>Chưa có cuộc gọi nào</p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {filteredCalls.map((call) => {
-                const { icon: StatusIcon, iconColor, isMissed } = getCallInfo(call);
-                const { name, avatar } = getContactInfo(call);
-                const duration = getCallDuration(call);
+                const { icon: StatusIcon, iconColor, isMissed, statusText } = getCallInfo(call);
+                const { name, avatar, phone } = getContactInfo(call);
+                const displayName = phone && !name.includes(phone) ? phone : name;
 
                 return (
                   <button
                     key={call.id}
-                    className="w-full p-3 rounded-xl flex items-center gap-3 hover:bg-sidebar-accent/50 transition-colors"
+                    className="w-full p-2 rounded-lg flex items-center gap-3 hover:bg-muted transition-colors"
+                    onClick={() => {
+                      if (call.conversation && onStartCall) {
+                        onStartCall(call.conversation.id, call.call_type);
+                      }
+                    }}
                   >
-                    <Avatar className="w-12 h-12">
+                    <Avatar className="w-10 h-10">
                       <AvatarImage src={avatar || undefined} />
-                      <AvatarFallback className="gradient-accent text-white font-semibold">
+                      <AvatarFallback className="gradient-accent text-white text-sm font-semibold">
                         {name.slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
 
                     <div className="flex-1 text-left min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2">
                         <span className={cn(
-                          "font-semibold truncate",
+                          "font-medium truncate",
                           isMissed && "text-destructive"
                         )}>
-                          {name}
+                          {displayName}
+                        </span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {formatCallDate(call.created_at)}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1 text-sm">
                         <StatusIcon className={cn("w-4 h-4", iconColor)} />
-                        <span>
-                          {formatDistanceToNow(new Date(call.created_at), {
-                            addSuffix: true,
-                            locale: vi
-                          })}
+                        <span className={cn(
+                          "text-muted-foreground",
+                          isMissed && "text-destructive"
+                        )}>
+                          {statusText}
                         </span>
-                        {duration && (
-                          <>
-                            <span>•</span>
-                            <Clock className="w-3 h-3" />
-                            <span>{duration}</span>
-                          </>
+                        {call.call_type === 'video' && (
+                          <Video className="w-3 h-3 ml-1 text-muted-foreground" />
                         )}
                       </div>
-                    </div>
-
-                    <div className={cn(
-                      "w-9 h-9 rounded-full flex items-center justify-center",
-                      "bg-primary/10 text-primary"
-                    )}>
-                      {call.call_type === 'video' ? (
-                        <Video className="w-4 h-4" />
-                      ) : (
-                        <Phone className="w-4 h-4" />
-                      )}
                     </div>
                   </button>
                 );
@@ -384,6 +415,14 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
           )}
         </div>
       </ScrollArea>
+
+      {/* Footer - Encryption notice */}
+      <div className="p-4 text-center border-t border-sidebar-border">
+        <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+          <Lock className="w-3 h-3" />
+          Cuộc gọi của bạn được <span className="text-primary">mã hóa đầu cuối</span>
+        </p>
+      </div>
 
       {/* DialPad Dialog */}
       <Dialog open={showDialPad} onOpenChange={setShowDialPad}>

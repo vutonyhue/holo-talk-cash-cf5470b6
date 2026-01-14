@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useCallSignaling } from '@/hooks/useCallSignaling';
+import { supabase } from '@/integrations/supabase/client';
 import AppSidebar from '@/components/layout/AppSidebar';
 import BottomNav from '@/components/layout/BottomNav';
 import ComingSoon from '@/components/layout/ComingSoon';
@@ -17,8 +18,14 @@ import { IncomingCallModal } from '@/components/chat/IncomingCallModal';
 import AIChatPanel from '@/components/ai/AIChatPanel';
 import AIChatWindow from '@/components/ai/AIChatWindow';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { MessageCircle, Sparkles } from 'lucide-react';
+import { MessageCircle, Sparkles, PhoneCall, Link, Keyboard, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CallActionCard } from '@/components/call/CallActionCard';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { DialPad } from '@/components/call/DialPad';
+import { PhoneCallDialog } from '@/components/call/PhoneCallDialog';
+import { usePhoneSearch } from '@/hooks/usePhoneSearch';
+import { toast } from 'sonner';
 
 type SidebarTab = 'chat' | 'calls' | 'community' | 'ai' | 'settings';
 type MobileTab = 'chat' | 'calls' | 'rewards' | 'settings' | 'profile';
@@ -35,6 +42,15 @@ export default function Chat() {
   const [activeTab, setActiveTab] = useState<SidebarTab>('chat');
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+
+  // DialPad state for calls panel
+  const [showDialPad, setShowDialPad] = useState(false);
+  const [showCallConfirm, setShowCallConfirm] = useState(false);
+  const [foundProfile, setFoundProfile] = useState<any>(null);
+  const [pendingCallType, setPendingCallType] = useState<'voice' | 'video'>('voice');
+  const [isConnecting, setIsConnecting] = useState(false);
+  
+  const { searchByPhone, isSearching, error: searchError, clearError } = usePhoneSearch();
 
   const handleAiSuggestion = useCallback((suggestion: string) => {
     setAiSuggestion(suggestion);
@@ -138,6 +154,87 @@ export default function Chat() {
     await startCall(conversationId, callType);
   };
 
+  // Handle phone dial from right panel
+  const handlePhoneDial = async (phoneNumber: string, callType: 'voice' | 'video') => {
+    clearError();
+    
+    const currentPhoneNumber = (profile as any)?.phone_number;
+    if (currentPhoneNumber === phoneNumber) {
+      toast.error('Không thể gọi cho chính mình');
+      return;
+    }
+    
+    const result = await searchByPhone(phoneNumber);
+    
+    if (result) {
+      if (result.id === profile?.id) {
+        toast.error('Không thể gọi cho chính mình');
+        return;
+      }
+      setFoundProfile(result);
+      setPendingCallType(callType);
+      setShowDialPad(false);
+      setShowCallConfirm(true);
+    } else if (searchError) {
+      toast.error(searchError);
+    }
+  };
+
+  // Handle confirm call from right panel
+  const handleConfirmCall = async () => {
+    if (!foundProfile) return;
+    
+    setIsConnecting(true);
+    
+    try {
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select(`
+          id,
+          conversation_members!inner(user_id)
+        `)
+        .eq('is_group', false)
+        .eq('conversation_members.user_id', foundProfile.id)
+        .limit(1)
+        .single();
+
+      let conversationId: string;
+
+      if (existingConv) {
+        conversationId = existingConv.id;
+      } else {
+        const { data: newConv, error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            is_group: false,
+            created_by: profile?.id
+          })
+          .select()
+          .single();
+
+        if (convError) throw convError;
+
+        await supabase
+          .from('conversation_members')
+          .insert([
+            { conversation_id: newConv.id, user_id: profile?.id },
+            { conversation_id: newConv.id, user_id: foundProfile.id }
+          ]);
+
+        conversationId = newConv.id;
+      }
+
+      await startCall(conversationId, pendingCallType);
+      setShowCallConfirm(false);
+      setFoundProfile(null);
+    } catch (err: any) {
+      console.error('Error starting call:', err);
+      toast.error('Không thể bắt đầu cuộc gọi');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   const getParticipantInfo = () => {
     const conv = activeCall 
       ? conversations.find(c => c.id === activeCall.conversation_id) 
@@ -230,18 +327,31 @@ export default function Chat() {
       );
     }
 
-    // For calls tab without selection
+    // For calls tab without selection - WhatsApp style action cards
     if (activeTab === 'calls' && !selectedConversation) {
       return (
         <div className="flex-1 flex items-center justify-center gradient-chat">
-          <div className="text-center max-w-md p-8">
-            <div className="w-24 h-24 rounded-3xl gradient-warm flex items-center justify-center shadow-float animate-float mx-auto mb-6">
-              <MessageCircle className="w-12 h-12 text-white" />
-            </div>
-            <h2 className="text-2xl font-bold mb-2">Lịch sử cuộc gọi</h2>
-            <p className="text-muted-foreground">
-              Chọn một cuộc gọi để xem chi tiết hoặc gọi lại
-            </p>
+          <div className="grid grid-cols-2 gap-4 max-w-sm">
+            <CallActionCard 
+              icon={<PhoneCall className="w-6 h-6" />} 
+              title="Bắt đầu cuộc gọi"
+              onClick={() => setShowDialPad(true)}
+            />
+            <CallActionCard 
+              icon={<Link className="w-6 h-6" />} 
+              title="Liên kết cuộc gọi"
+              onClick={() => toast.info('Tính năng sẽ sớm ra mắt')}
+            />
+            <CallActionCard 
+              icon={<Keyboard className="w-6 h-6" />} 
+              title="Gọi số điện thoại"
+              onClick={() => setShowDialPad(true)}
+            />
+            <CallActionCard 
+              icon={<Calendar className="w-6 h-6" />} 
+              title="Lên lịch cuộc gọi"
+              onClick={() => toast.info('Tính năng sẽ sớm ra mắt')}
+            />
           </div>
         </div>
       );
@@ -399,6 +509,27 @@ export default function Chat() {
         participantAvatar={getParticipantInfo().avatar}
         isGroup={selectedConversation?.is_group}
         channelName={activeCall?.channel_name}
+      />
+
+      {/* DialPad Dialog for Calls Tab */}
+      <Dialog open={showDialPad} onOpenChange={setShowDialPad}>
+        <DialogContent className="sm:max-w-md p-0 h-[600px] max-h-[90vh]">
+          <DialPad
+            onCall={handlePhoneDial}
+            onClose={() => setShowDialPad(false)}
+            isSearching={isSearching}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Call Confirmation Dialog */}
+      <PhoneCallDialog
+        open={showCallConfirm}
+        onOpenChange={setShowCallConfirm}
+        profile={foundProfile}
+        callType={pendingCallType}
+        onConfirmCall={handleConfirmCall}
+        isLoading={isConnecting}
       />
     </div>
   );
