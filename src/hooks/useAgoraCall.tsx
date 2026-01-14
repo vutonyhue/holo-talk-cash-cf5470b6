@@ -69,6 +69,8 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   const eventListenersSetRef = useRef(false);
   const lastUserInfoUpdateRef = useRef<Map<string, number>>(new Map());
   const isMountedRef = useRef(true); // Track if component is mounted
+  const isClientReadyRef = useRef(false); // Track if client is fully initialized
+  const retryCountRef = useRef(0); // Track retry attempts for INVALID_OPERATION
   
   const [state, setState] = useState<AgoraCallState>({
     localVideoTrack: null,
@@ -103,6 +105,9 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   // Create new Agora client for each call session
   useEffect(() => {
     if (enabled && channelName) {
+      // Mark client as not ready during initialization
+      isClientReadyRef.current = false;
+      
       // Cleanup old client if exists
       if (clientRef.current) {
         agoraLog.info('Init', 'Cleaning up old client before creating new one', { channel: channelName });
@@ -114,11 +119,16 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       hasJoinedRef.current = false;
       joinInProgressRef.current = false;
       eventListenersSetRef.current = false;
+      retryCountRef.current = 0;
       
       // Create new client
       const sdkVersion = AgoraRTC.VERSION;
       clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-      agoraLog.success('Init', 'New client created', { 
+      
+      // Mark client as ready after creation
+      isClientReadyRef.current = true;
+      
+      agoraLog.success('Init', 'New client created and ready', { 
         channel: channelName, 
         sdkVersion,
         mode: 'rtc', 
@@ -128,6 +138,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     }
     
     return () => {
+      isClientReadyRef.current = false;
       if (clientRef.current) {
         agoraLog.info('Init', 'Cleanup: removing client listeners');
         clientRef.current.removeAllListeners();
@@ -351,9 +362,35 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     throw lastError || new Error('Không thể lấy token sau nhiều lần thử');
   }, [channelName]);
 
+  // Wait for client to be ready
+  const waitForClientReady = useCallback(async (timeoutMs: number = 3000): Promise<boolean> => {
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeoutMs) {
+      if (isClientReadyRef.current && clientRef.current) {
+        return true;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    
+    agoraLog.error('Join', 'Client not ready within timeout', { timeoutMs });
+    return false;
+  }, []);
+
   // Join channel
   const joinChannel = useCallback(async () => {
     const joinStartTime = Date.now();
+    
+    // Wait for client to be ready before proceeding
+    if (!isClientReadyRef.current || !clientRef.current) {
+      agoraLog.warn('Join', 'Client not ready, waiting...', { isReady: isClientReadyRef.current, hasClient: !!clientRef.current });
+      
+      const isReady = await waitForClientReady(3000);
+      if (!isReady) {
+        safeSetState(prev => ({ ...prev, isConnecting: false, error: 'Không thể khởi tạo kết nối. Vui lòng thử lại.' }));
+        return;
+      }
+    }
     
     // Prevent multiple join attempts
     if (!clientRef.current || !channelName) {
@@ -401,7 +438,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
     joinInProgressRef.current = true;
     safeSetState(prev => ({ ...prev, isConnecting: true, error: null }));
-    agoraLog.info('Join', '=== Starting join process ===', { channel: channelName, isVideoCall });
+    agoraLog.info('Join', '=== Starting join process ===', { channel: channelName, isVideoCall, retryCount: retryCountRef.current });
 
     try {
       // Set up event listeners before joining
@@ -550,9 +587,26 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         code: error?.code, 
         message: error?.message,
         name: error?.name,
-        totalTime: `${Date.now() - joinStartTime}ms`
+        totalTime: `${Date.now() - joinStartTime}ms`,
+        retryCount: retryCountRef.current
       });
       hasJoinedRef.current = false;
+      joinInProgressRef.current = false;
+      
+      // Auto-retry for INVALID_OPERATION (up to 2 retries)
+      if (error.code === 'INVALID_OPERATION' && retryCountRef.current < 2) {
+        retryCountRef.current += 1;
+        agoraLog.warn('Join', `INVALID_OPERATION - auto retrying (${retryCountRef.current}/2)...`);
+        
+        // Wait a bit then retry
+        await new Promise(r => setTimeout(r, 1000));
+        
+        // Check if still mounted and enabled
+        if (isMountedRef.current && enabled && channelName) {
+          return joinChannel();
+        }
+        return;
+      }
       
       let errorMessage = 'Không thể kết nối cuộc gọi';
       
@@ -567,7 +621,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         agoraLog.error('Join', 'Invalid Agora App ID');
         errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra cấu hình.';
       } else if (error.code === 'INVALID_OPERATION') {
-        agoraLog.error('Join', 'Invalid operation - client state issue');
+        agoraLog.error('Join', 'Invalid operation - client state issue (max retries reached)');
         errorMessage = 'Lỗi kết nối. Vui lòng thử lại.';
       } else if (error.code === 'OPERATION_ABORTED') {
         agoraLog.error('Join', 'Operation was aborted');
@@ -585,10 +639,8 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         isConnecting: false,
         error: errorMessage,
       }));
-    } finally {
-      joinInProgressRef.current = false;
     }
-  }, [channelName, fetchToken, isVideoCall, setupEventListeners]);
+  }, [channelName, fetchToken, isVideoCall, setupEventListeners, waitForClientReady, enabled, safeSetState]);
 
   // Leave channel with full cleanup
   const leaveChannel = useCallback(async () => {
@@ -694,11 +746,21 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     error: state.error,
   }), [channelName, state.remoteUsers.length, state.error]);
 
-  // Auto join when enabled
+  // Auto join when enabled - with delay to ensure client is ready
   useEffect(() => {
-    if (enabled && channelName && !hasJoinedRef.current && !joinInProgressRef.current) {
-      joinChannel();
+    if (!enabled || !channelName || hasJoinedRef.current || joinInProgressRef.current) {
+      return;
     }
+    
+    // Small delay to ensure client initialization effect has completed
+    const timer = setTimeout(() => {
+      if (enabled && channelName && !hasJoinedRef.current && !joinInProgressRef.current && isMountedRef.current) {
+        agoraLog.info('AutoJoin', 'Triggering auto-join after delay', { channel: channelName, isClientReady: isClientReadyRef.current });
+        joinChannel();
+      }
+    }, 150);
+    
+    return () => clearTimeout(timer);
   }, [enabled, channelName, joinChannel]);
 
   // Cleanup on unmount
