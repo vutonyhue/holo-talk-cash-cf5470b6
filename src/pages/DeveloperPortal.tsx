@@ -13,12 +13,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { ArrowLeft, Key, Webhook, Code, BarChart3, Copy, Plus, Trash2, Eye, EyeOff, ExternalLink, Layout, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useWebhooks } from "@/hooks/useWebhooks";
+import { WebhookManager } from "@/components/webhooks/WebhookManager";
+import { WebhookTester } from "@/components/webhooks/WebhookTester";
+import { WebhookDeliveryLogs } from "@/components/webhooks/WebhookDeliveryLogs";
 
 const AVAILABLE_SCOPES = [
   { id: 'chat:read', label: 'Chat Read', description: 'Read conversations and messages' },
   { id: 'chat:write', label: 'Chat Write', description: 'Send messages, create conversations' },
   { id: 'users:read', label: 'Users Read', description: 'View user profiles' },
-  { id: 'users:write', label: 'Users Write', description: 'Update profile' },
+  { id: 'users:write', label: 'Users Write', description: 'Initiate calls' },
   { id: 'calls:read', label: 'Calls Read', description: 'View call history' },
   { id: 'calls:write', label: 'Calls Write', description: 'Initiate calls' },
   { id: 'crypto:read', label: 'Crypto Read', description: 'View transactions' },
@@ -27,19 +31,10 @@ const AVAILABLE_SCOPES = [
   { id: 'webhooks:write', label: 'Webhooks Write', description: 'Manage webhooks' },
 ];
 
-const WEBHOOK_EVENTS = [
-  { id: 'message.created', label: 'Message Created' },
-  { id: 'message.deleted', label: 'Message Deleted' },
-  { id: 'call.started', label: 'Call Started' },
-  { id: 'call.ended', label: 'Call Ended' },
-  { id: 'crypto.transfer', label: 'Crypto Transfer' },
-];
-
 export default function DeveloperPortal() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [apiKeys, setApiKeys] = useState<any[]>([]);
-  const [webhooks, setWebhooks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['chat:read', 'users:read']);
@@ -55,6 +50,21 @@ export default function DeveloperPortal() {
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [generatingToken, setGeneratingToken] = useState(false);
 
+  // Webhook management - use first API key with webhooks scope
+  const webhookApiKey = apiKeys.find(k => k.is_active && k.scopes?.includes('webhooks:write'));
+  const {
+    webhooks,
+    loading: webhooksLoading,
+    testLoading,
+    fetchWebhooks,
+    createWebhook,
+    updateWebhook,
+    deleteWebhook,
+    testWebhook,
+    fetchDeliveries,
+    rotateSecret,
+  } = useWebhooks(webhookApiKey?.id, user?.id, webhookApiKey?.scopes);
+
   useEffect(() => {
     if (user) {
       fetchData();
@@ -62,14 +72,16 @@ export default function DeveloperPortal() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (webhookApiKey) {
+      fetchWebhooks();
+    }
+  }, [webhookApiKey?.id, fetchWebhooks]);
+
   const fetchData = async () => {
     setLoading(true);
-    const [keysRes, webhooksRes] = await Promise.all([
-      supabase.from('api_keys').select('*').order('created_at', { ascending: false }),
-      supabase.from('webhooks').select('*').order('created_at', { ascending: false }),
-    ]);
-    setApiKeys(keysRes.data || []);
-    setWebhooks(webhooksRes.data || []);
+    const { data } = await supabase.from('api_keys').select('*').order('created_at', { ascending: false });
+    setApiKeys(data || []);
     setLoading(false);
   };
 
@@ -341,25 +353,41 @@ export default function DeveloperPortal() {
 
           {/* Webhooks Tab */}
           <TabsContent value="webhooks" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Webhooks</CardTitle>
-                <CardDescription>Nhận thông báo real-time khi có events</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Webhooks được quản lý qua API. Sử dụng endpoint <code>/api-webhooks</code> để tạo và quản lý webhooks.
-                </p>
-                <div className="mt-4">
-                  <h4 className="font-medium mb-2">Available Events:</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {WEBHOOK_EVENTS.map((event) => (
-                      <Badge key={event.id} variant="outline">{event.label}</Badge>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            {!webhookApiKey ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Webhooks</CardTitle>
+                  <CardDescription>Nhận thông báo real-time khi có events</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground">
+                    Bạn cần tạo API key với scopes <code>webhooks:read</code> và <code>webhooks:write</code> để quản lý webhooks.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <WebhookManager
+                  webhooks={webhooks}
+                  loading={webhooksLoading}
+                  onCreateWebhook={createWebhook}
+                  onUpdateWebhook={updateWebhook}
+                  onDeleteWebhook={deleteWebhook}
+                  onRotateSecret={rotateSecret}
+                />
+
+                <WebhookTester
+                  webhooks={webhooks}
+                  onTest={testWebhook}
+                  testLoading={testLoading}
+                />
+
+                <WebhookDeliveryLogs
+                  webhooks={webhooks}
+                  onFetchDeliveries={fetchDeliveries}
+                />
+              </>
+            )}
           </TabsContent>
 
           {/* SDK Tab */}
