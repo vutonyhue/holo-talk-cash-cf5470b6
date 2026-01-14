@@ -23,7 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import { DialPad } from '@/components/call/DialPad';
 import { PhoneCallDialog } from '@/components/call/PhoneCallDialog';
-import { usePhoneSearch } from '@/hooks/usePhoneSearch';
+import { useUserSearch } from '@/hooks/useUserSearch';
 import { toast } from 'sonner';
 
 interface CallRecord {
@@ -68,11 +68,11 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
   const [pendingCallType, setPendingCallType] = useState<'voice' | 'video'>('voice');
   const [isConnecting, setIsConnecting] = useState(false);
   
-  // Phone search state
-  const [searchResult, setSearchResult] = useState<any>(null);
+  // User search state
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   
-  const { searchByPhone, isSearching, error: searchError, clearError } = usePhoneSearch();
+  const { searchUsers, isSearching, error: searchError, clearError } = useUserSearch();
 
   useEffect(() => {
     const fetchCalls = async () => {
@@ -208,13 +208,13 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     }
   };
 
-  // Debounced phone search
+  // Debounced user search (supports phone, username, display_name)
   useEffect(() => {
-    const digitsOnly = searchQuery.replace(/\D/g, '');
+    const trimmedQuery = searchQuery.trim();
     
-    // Reset if query is too short
-    if (digitsOnly.length < 9) {
-      setSearchResult(null);
+    // Reset if query is too short (minimum 2 characters)
+    if (trimmedQuery.length < 2) {
+      setSearchResults([]);
       setHasSearched(false);
       return;
     }
@@ -222,13 +222,15 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     // Debounce the search
     const timer = setTimeout(async () => {
       clearError();
-      const result = await searchByPhone(searchQuery);
-      setSearchResult(result);
+      const results = await searchUsers(searchQuery);
+      // Filter out current user from results
+      const filteredResults = results.filter(user => user.id !== profile?.id);
+      setSearchResults(filteredResults);
       setHasSearched(true);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, profile?.id]);
 
   const filteredCalls = calls.filter(call => {
     const { name, phone } = getContactInfo(call);
@@ -259,7 +261,8 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
       return;
     }
     
-    const result = await searchByPhone(phoneNumber);
+    const results = await searchUsers(phoneNumber);
+    const result = results.length > 0 ? results[0] : null;
     
     if (result) {
       if (result.id === profile?.id) {
@@ -368,53 +371,62 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
 
       <ScrollArea className="flex-1">
         {/* Search Result Section */}
-        {hasSearched && searchQuery && (
+        {hasSearched && searchQuery.trim().length >= 2 && (
           <div className="px-2 py-3">
-            <p className="text-sm text-muted-foreground mb-2 px-2">Kết quả tìm kiếm</p>
+            <p className="text-sm text-muted-foreground mb-2 px-2">
+              Kết quả tìm kiếm {searchResults.length > 0 && `(${searchResults.length})`}
+            </p>
             
             {isSearching ? (
               <div className="flex items-center gap-3 p-2">
                 <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
                 <span className="text-sm text-muted-foreground">Đang tìm kiếm...</span>
               </div>
-            ) : searchResult ? (
-              <div className="w-full p-2 rounded-lg flex items-center gap-3 bg-muted/50">
-                <Avatar className="w-10 h-10">
-                  <AvatarImage src={searchResult.avatar_url || undefined} />
-                  <AvatarFallback className="gradient-accent text-white text-sm font-semibold">
-                    {(searchResult.display_name || searchResult.username).slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 text-left min-w-0">
-                  <span className="font-medium block truncate">
-                    {searchResult.display_name || searchResult.username}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {searchResult.phone_number}
-                  </span>
-                </div>
-                <div className="flex gap-1">
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-9 w-9 rounded-full hover:bg-primary/10"
-                    onClick={() => handleCallFromSearch(searchResult, 'voice')}
+            ) : searchResults.length > 0 ? (
+              <div className="space-y-1">
+                {searchResults.map((user) => (
+                  <div 
+                    key={user.id}
+                    className="w-full p-2 rounded-lg flex items-center gap-3 hover:bg-muted/50 transition-colors"
                   >
-                    <Phone className="w-4 h-4 text-primary" />
-                  </Button>
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-9 w-9 rounded-full hover:bg-primary/10"
-                    onClick={() => handleCallFromSearch(searchResult, 'video')}
-                  >
-                    <Video className="w-4 h-4 text-primary" />
-                  </Button>
-                </div>
+                    <Avatar className="w-10 h-10">
+                      <AvatarImage src={user.avatar_url || undefined} />
+                      <AvatarFallback className="gradient-accent text-white text-sm font-semibold">
+                        {(user.display_name || user.username).slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 text-left min-w-0">
+                      <span className="font-medium block truncate">
+                        {user.display_name || user.username}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        @{user.username}{user.phone_number && ` • ${user.phone_number}`}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-9 w-9 rounded-full hover:bg-primary/10"
+                        onClick={() => handleCallFromSearch(user, 'voice')}
+                      >
+                        <Phone className="w-4 h-4 text-primary" />
+                      </Button>
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-9 w-9 rounded-full hover:bg-primary/10"
+                        onClick={() => handleCallFromSearch(user, 'video')}
+                      >
+                        <Video className="w-4 h-4 text-primary" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="p-2 text-sm text-muted-foreground">
-                Không tìm thấy người dùng với số điện thoại này
+                Không tìm thấy người dùng
               </div>
             )}
             

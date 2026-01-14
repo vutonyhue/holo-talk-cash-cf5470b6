@@ -24,7 +24,7 @@ import { CallActionCard } from '@/components/call/CallActionCard';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { DialPad } from '@/components/call/DialPad';
 import { PhoneCallDialog } from '@/components/call/PhoneCallDialog';
-import { usePhoneSearch } from '@/hooks/usePhoneSearch';
+import { useUserSearch } from '@/hooks/useUserSearch';
 import { toast } from 'sonner';
 
 type SidebarTab = 'chat' | 'calls' | 'community' | 'ai' | 'settings';
@@ -50,7 +50,7 @@ export default function Chat() {
   const [pendingCallType, setPendingCallType] = useState<'voice' | 'video'>('voice');
   const [isConnecting, setIsConnecting] = useState(false);
   
-  const { searchByPhone, isSearching, error: searchError, clearError } = usePhoneSearch();
+  const { searchUsers, isSearching, error: searchError, clearError } = useUserSearch();
 
   const handleAiSuggestion = useCallback((suggestion: string) => {
     setAiSuggestion(suggestion);
@@ -164,8 +164,8 @@ export default function Chat() {
       return;
     }
     
-    const result = await searchByPhone(phoneNumber);
-    
+    const results = await searchUsers(phoneNumber);
+    const result = results.length > 0 ? results[0] : null;
     if (result) {
       if (result.id === profile?.id) {
         toast.error('Không thể gọi cho chính mình');
