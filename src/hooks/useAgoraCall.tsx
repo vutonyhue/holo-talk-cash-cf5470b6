@@ -611,15 +611,24 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       let errorMessage = 'Không thể kết nối cuộc gọi';
       
       // Handle specific Agora error codes with logging
-      if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
+      // Check for invalid appId first (most specific case of CAN_NOT_GET_GATEWAY_SERVER)
+      const isInvalidAppId = error.message?.toLowerCase().includes('invalid vendor key') || 
+                             error.message?.toLowerCase().includes('can not find appid') ||
+                             error.code === 'INVALID_VENDOR_KEY';
+      
+      if (isInvalidAppId) {
+        agoraLog.error('Join', '❌ INVALID AGORA APP ID - Worker is configured with wrong AGORA_APP_ID', {
+          errorCode: error.code,
+          errorMessage: error.message,
+          hint: 'Check AGORA_APP_ID secret in Cloudflare Worker matches your Agora Console App ID'
+        });
+        errorMessage = 'Agora App ID không hợp lệ hoặc không tồn tại. Vui lòng kiểm tra cấu hình AGORA_APP_ID trong Worker.';
+      } else if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
         agoraLog.error('Join', 'Gateway server unreachable - check network/token/appId');
-        errorMessage = 'Không thể kết nối server Agora. Kiểm tra kết nối mạng.';
+        errorMessage = 'Không thể kết nối server Agora. Kiểm tra kết nối mạng hoặc cấu hình Agora.';
       } else if (error.code === 'UID_CONFLICT') {
         agoraLog.error('Join', 'UID conflict detected');
         errorMessage = 'Xung đột user ID. Vui lòng thử lại.';
-      } else if (error.code === 'INVALID_VENDOR_KEY' || error.message?.includes('vendor key')) {
-        agoraLog.error('Join', 'Invalid Agora App ID');
-        errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra cấu hình.';
       } else if (error.code === 'INVALID_OPERATION') {
         agoraLog.error('Join', 'Invalid operation - client state issue (max retries reached)');
         errorMessage = 'Lỗi kết nối. Vui lòng thử lại.';
