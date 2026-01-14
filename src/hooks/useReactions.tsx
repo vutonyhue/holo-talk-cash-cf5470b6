@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { api } from '@/lib/api';
 
 export interface Reaction {
   id: string;
@@ -24,23 +25,24 @@ export function useReactions(conversationId: string | null) {
   const fetchReactions = useCallback(async (messageIds: string[]) => {
     if (!messageIds.length) return;
 
-    const { data, error } = await supabase
-      .from('message_reactions')
-      .select('*')
-      .in('message_id', messageIds);
+    try {
+      const response = await api.reactions.getForMessages(messageIds);
 
-    if (error) {
-      console.error('Error fetching reactions:', error);
-      return;
+      if (!response.ok || !response.data) {
+        console.error('[useReactions] Error fetching:', response.error);
+        return;
+      }
+
+      const reactionMap = new Map<string, Reaction[]>();
+      (response.data.reactions || []).forEach((r: Reaction) => {
+        const existing = reactionMap.get(r.message_id) || [];
+        reactionMap.set(r.message_id, [...existing, r]);
+      });
+
+      setReactions(reactionMap);
+    } catch (error) {
+      console.error('[useReactions] Fetch error:', error);
     }
-
-    const reactionMap = new Map<string, Reaction[]>();
-    (data || []).forEach((r: Reaction) => {
-      const existing = reactionMap.get(r.message_id) || [];
-      reactionMap.set(r.message_id, [...existing, r]);
-    });
-
-    setReactions(reactionMap);
   }, []);
 
   // Subscribe to realtime reactions
@@ -117,15 +119,16 @@ export function useReactions(conversationId: string | null) {
         return updated;
       });
 
-      // Then delete from database
-      const { error } = await supabase
-        .from('message_reactions')
-        .delete()
-        .eq('id', existingReaction.id);
-
-      if (error) {
-        console.error('Error removing reaction:', error);
-        // Rollback on error
+      // Then delete via API
+      try {
+        const response = await api.reactions.remove(existingReaction.id);
+        if (!response.ok) {
+          console.error('[useReactions] Error removing:', response.error);
+          // Rollback on error
+          fetchReactions([messageId]);
+        }
+      } catch (error) {
+        console.error('[useReactions] Remove error:', error);
         fetchReactions([messageId]);
       }
     } else {
@@ -145,18 +148,21 @@ export function useReactions(conversationId: string | null) {
         return updated;
       });
 
-      // Then insert to database
-      const { error } = await supabase
-        .from('message_reactions')
-        .insert({
-          message_id: messageId,
-          user_id: user.id,
-          emoji,
-        });
-
-      if (error) {
-        console.error('Error adding reaction:', error);
-        // Rollback on error
+      // Then add via API
+      try {
+        const response = await api.reactions.add(messageId, emoji);
+        if (!response.ok) {
+          console.error('[useReactions] Error adding:', response.error);
+          // Rollback on error
+          setReactions(prev => {
+            const updated = new Map(prev);
+            const existing = updated.get(messageId) || [];
+            updated.set(messageId, existing.filter(r => r.id !== tempReaction.id));
+            return updated;
+          });
+        }
+      } catch (error) {
+        console.error('[useReactions] Add error:', error);
         setReactions(prev => {
           const updated = new Map(prev);
           const existing = updated.get(messageId) || [];

@@ -2,6 +2,7 @@ import { useState, useEffect, createContext, useContext, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { Profile } from '@/types';
+import { api } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -50,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (session?.user) {
           setTimeout(() => {
-            fetchProfile(session.user.id);
+            fetchProfile();
           }, 0);
         } else {
           setProfile(null);
@@ -62,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        fetchProfile();
       }
       setLoading(false);
     });
@@ -70,15 +71,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (!error && data) {
-      setProfile(data as Profile);
+  // Fetch profile via API instead of direct Supabase call
+  const fetchProfile = async () => {
+    try {
+      const response = await api.auth.getMe();
+      
+      if (response.ok && response.data) {
+        setProfile(response.data as Profile);
+      }
+    } catch (error) {
+      console.error('[useAuth] Error fetching profile:', error);
     }
   };
 
@@ -183,16 +185,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = async (updates: Partial<Profile>) => {
     if (!user) return { error: new Error('No user logged in') };
 
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user.id);
+    try {
+      const response = await api.auth.updateMe(updates);
 
-    if (!error) {
+      if (!response.ok) {
+        return { error: new Error(response.error?.message || 'Failed to update profile') };
+      }
+
       setProfile(prev => prev ? { ...prev, ...updates } : null);
+      return { error: null };
+    } catch (error: any) {
+      return { error };
     }
-
-    return { error: error as Error | null };
   };
 
   return (

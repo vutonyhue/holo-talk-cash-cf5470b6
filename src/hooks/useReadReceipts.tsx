@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { api } from '@/lib/api';
 
 interface ReadReceipt {
   message_id: string;
@@ -13,32 +14,33 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
   const [readReceipts, setReadReceipts] = useState<Record<string, ReadReceipt[]>>({});
   const markedAsReadRef = useRef<Set<string>>(new Set());
 
-  // Fetch existing read receipts
+  // Fetch existing read receipts via API
   useEffect(() => {
     if (!conversationId || messageIds.length === 0) return;
 
     const fetchReadReceipts = async () => {
-      const { data, error } = await supabase
-        .from('message_reads')
-        .select('*')
-        .in('message_id', messageIds);
+      try {
+        const response = await api.readReceipts.getForMessages(messageIds);
 
-      if (!error && data) {
-        const receiptsMap: Record<string, ReadReceipt[]> = {};
-        data.forEach((receipt) => {
-          if (!receiptsMap[receipt.message_id]) {
-            receiptsMap[receipt.message_id] = [];
-          }
-          receiptsMap[receipt.message_id].push(receipt);
-        });
-        setReadReceipts(receiptsMap);
+        if (response.ok && response.data) {
+          const receiptsMap: Record<string, ReadReceipt[]> = {};
+          response.data.receipts.forEach((receipt) => {
+            if (!receiptsMap[receipt.message_id]) {
+              receiptsMap[receipt.message_id] = [];
+            }
+            receiptsMap[receipt.message_id].push(receipt);
+          });
+          setReadReceipts(receiptsMap);
+        }
+      } catch (error) {
+        console.error('[useReadReceipts] Fetch error:', error);
       }
     };
 
     fetchReadReceipts();
   }, [conversationId, messageIds.join(',')]);
 
-  // Subscribe to realtime read receipts
+  // Subscribe to realtime read receipts - KEEP SUPABASE REALTIME
   useEffect(() => {
     if (!conversationId) return;
 
@@ -73,7 +75,7 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     };
   }, [conversationId]);
 
-  // Mark messages as read
+  // Mark messages as read via API
   const markAsRead = useCallback(async (messageIdsToMark: string[]) => {
     if (!user) return;
 
@@ -88,37 +90,17 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     newMessageIds.forEach((id) => markedAsReadRef.current.add(id));
 
     try {
-      // Check which messages are already read to avoid duplicate insert errors
-      const { data: existingReads } = await supabase
-        .from('message_reads')
-        .select('message_id')
-        .in('message_id', newMessageIds)
-        .eq('user_id', user.id);
+      const response = await api.readReceipts.markAsRead(newMessageIds);
 
-      const existingIds = new Set(existingReads?.map(r => r.message_id) || []);
-      const toInsert = newMessageIds.filter(id => !existingIds.has(id));
-
-      if (toInsert.length === 0) return;
-
-      // Insert only new read receipts
-      const inserts = toInsert.map((messageId) => ({
-        message_id: messageId,
-        user_id: user.id,
-      }));
-
-      const { error } = await supabase
-        .from('message_reads')
-        .insert(inserts);
-
-      if (error) {
+      if (!response.ok) {
         // Remove from pending if failed
-        toInsert.forEach((id) => markedAsReadRef.current.delete(id));
-        console.error('Error marking messages as read:', error);
+        newMessageIds.forEach((id) => markedAsReadRef.current.delete(id));
+        console.error('[useReadReceipts] Error marking as read:', response.error);
       }
     } catch (err) {
       // Remove from pending if failed
       newMessageIds.forEach((id) => markedAsReadRef.current.delete(id));
-      console.error('Error marking messages as read:', err);
+      console.error('[useReadReceipts] Error marking as read:', err);
     }
   }, [user]);
 

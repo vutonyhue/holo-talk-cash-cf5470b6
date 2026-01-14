@@ -17,6 +17,7 @@ import { createReactionsApi } from './modules/reactions';
 import { createReadReceiptsApi } from './modules/readReceipts';
 import { createMediaApi } from './modules/media';
 import { createRewardsApi } from './modules/rewards';
+import { createApiKeysApi } from './modules/apiKeys';
 
 // Get base URL from environment or default to production
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.workers.dev';
@@ -52,6 +53,7 @@ export const api = {
   readReceipts: createReadReceiptsApi(apiClient),
   media: createMediaApi(apiClient),
   rewards: createRewardsApi(apiClient),
+  apiKeys: createApiKeysApi(apiClient),
 };
 
 // Export types
