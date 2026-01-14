@@ -259,7 +259,7 @@ serve(async (req) => {
       return successResponse({ deleted: true });
     }
 
-    // POST /api-webhooks/:id/test - Test webhook
+    // POST /api-webhooks/:id/test - Test webhook with custom payload
     if (req.method === 'POST' && pathParts.includes('test')) {
       const testWebhookId = pathParts[pathParts.indexOf('api-webhooks') + 1];
       
@@ -279,20 +279,35 @@ serve(async (req) => {
         return errorResponse('NOT_FOUND', 'Webhook not found', 404);
       }
 
-      // Send test payload
+      // Parse request body for custom event and payload
+      let customEvent = 'test';
+      let customData: Record<string, unknown> = { message: 'This is a test webhook from FunChat' };
+      
+      try {
+        const body = await req.json();
+        if (body.event) customEvent = body.event;
+        if (body.payload) customData = body.payload;
+      } catch {
+        // Use defaults if no body
+      }
+
+      // Build test payload
       const testPayload = {
-        event: 'test',
-        data: { message: 'This is a test webhook from FunChat' },
+        event: customEvent,
+        data: customData,
         timestamp: new Date().toISOString(),
         api_key_id: auth.keyId,
+        delivery_id: `test_${crypto.randomUUID()}`,
       };
 
       const payloadString = JSON.stringify(testPayload);
+      const timestamp = Date.now().toString();
       
       // Create signature
       const encoder = new TextEncoder();
       const keyData = encoder.encode(webhook.secret);
-      const messageData = encoder.encode(payloadString);
+      const signaturePayload = `${timestamp}.${payloadString}`;
+      const messageData = encoder.encode(signaturePayload);
       const cryptoKey = await crypto.subtle.importKey(
         'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
       );
@@ -300,30 +315,90 @@ serve(async (req) => {
       const signatureHex = Array.from(new Uint8Array(signature))
         .map(b => b.toString(16).padStart(2, '0')).join('');
 
+      const startTime = Date.now();
+
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
         const response = await fetch(webhook.url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-FunChat-Event': 'test',
+            'X-FunChat-Event': customEvent,
             'X-FunChat-Signature': `sha256=${signatureHex}`,
-            'X-FunChat-Timestamp': Date.now().toString(),
+            'X-FunChat-Timestamp': timestamp,
+            'X-FunChat-Delivery-ID': testPayload.delivery_id,
             'User-Agent': 'FunChat-Webhook/1.0',
           },
           body: payloadString,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        const duration_ms = Date.now() - startTime;
+        
+        // Get response body
+        let responseBody = '';
+        try {
+          responseBody = await response.text();
+        } catch {
+          // Ignore body read errors
+        }
+
+        // Get response headers
+        const responseHeaders: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
         });
 
         return successResponse({
           sent: true,
           status: response.status,
-          ok: response.ok,
+          statusText: response.statusText,
+          headers: responseHeaders,
+          body: responseBody,
+          duration_ms,
         });
       } catch (err: any) {
+        const duration_ms = Date.now() - startTime;
         return successResponse({
           sent: false,
-          error: err.message,
+          error: err.name === 'AbortError' ? 'Request timeout (30s)' : err.message,
+          duration_ms,
         });
       }
+    }
+
+    // POST /api-webhooks/:id/rotate-secret - Rotate webhook secret
+    if (req.method === 'POST' && pathParts.includes('rotate-secret')) {
+      const rotateWebhookId = pathParts[pathParts.indexOf('api-webhooks') + 1];
+      
+      if (!hasScope(auth.scopes, 'webhooks:write')) {
+        return errorResponse('FORBIDDEN', 'Requires webhooks:write scope', 403);
+      }
+
+      const newSecret = generateWebhookSecret();
+
+      const { data, error } = await supabase
+        .from('webhooks')
+        .update({ secret: newSecret })
+        .eq('id', rotateWebhookId)
+        .eq('api_key_id', auth.keyId)
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        return errorResponse('NOT_FOUND', 'Webhook not found', 404);
+      }
+
+      return successResponse({ 
+        id: data.id, 
+        secret: newSecret 
+      }, 200, { 
+        warning: 'Save the new secret now. It will not be shown again.' 
+      });
     }
 
     // GET /api-webhooks/:id/deliveries - Get delivery logs
