@@ -616,14 +616,20 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       let errorMessage = 'Không thể kết nối cuộc gọi';
       
       if (error.code === 'CAN_NOT_GET_GATEWAY_SERVER') {
-        agoraLog.error('Join', 'Gateway server unreachable - check network/token/appId');
-        errorMessage = 'Không thể kết nối server Agora. Kiểm tra kết nối mạng.';
+        // Check if it's specifically an invalid App ID issue
+        if (error.message?.includes('invalid vendor key') || error.message?.includes('can not find appid')) {
+          agoraLog.error('Join', 'Invalid Agora App ID - check AGORA_APP_ID secret in Supabase');
+          errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra AGORA_APP_ID trong Supabase Secrets.';
+        } else {
+          agoraLog.error('Join', 'Gateway server unreachable - check network/token/appId');
+          errorMessage = 'Không thể kết nối server Agora. Kiểm tra kết nối mạng.';
+        }
       } else if (error.code === 'UID_CONFLICT') {
         agoraLog.error('Join', 'UID conflict detected');
         errorMessage = 'Xung đột user ID. Vui lòng thử lại.';
       } else if (error.code === 'INVALID_VENDOR_KEY' || error.message?.includes('vendor key')) {
         agoraLog.error('Join', 'Invalid Agora App ID');
-        errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra cấu hình.';
+        errorMessage = 'Agora App ID không hợp lệ. Vui lòng kiểm tra AGORA_APP_ID trong Supabase Secrets.';
       } else if (error.code === 'INVALID_OPERATION') {
         agoraLog.error('Join', 'Invalid operation - client state issue (max retries reached)');
         errorMessage = 'Lỗi kết nối. Vui lòng thử lại.';
