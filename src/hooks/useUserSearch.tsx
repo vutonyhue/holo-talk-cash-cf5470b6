@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 
 interface Profile {
   id: string;
@@ -16,22 +16,6 @@ interface UseUserSearchReturn {
   clearError: () => void;
 }
 
-// Normalize phone number: remove spaces, dashes, and optionally country code
-const normalizePhoneNumber = (phone: string): string => {
-  let normalized = phone.replace(/[^\d+]/g, '');
-  
-  if (normalized.startsWith('+')) {
-    normalized = normalized.slice(1);
-  }
-  
-  // Remove common country codes (84 for Vietnam, etc.)
-  if (normalized.startsWith('84') && normalized.length > 9) {
-    normalized = '0' + normalized.slice(2);
-  }
-  
-  return normalized;
-};
-
 export const useUserSearch = (): UseUserSearchReturn => {
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,48 +31,16 @@ export const useUserSearch = (): UseUserSearchReturn => {
         return [];
       }
 
-      const digitsOnly = trimmedQuery.replace(/\D/g, '');
-      const isPhoneSearch = digitsOnly.length >= 9;
+      // Use API client instead of direct Supabase call
+      const response = await api.users.search(trimmedQuery);
 
-      if (isPhoneSearch) {
-        // Search by phone number
-        const normalized = normalizePhoneNumber(trimmedQuery);
-        
-        const searchPatterns = [
-          trimmedQuery,
-          normalized,
-          `+84${normalized.slice(1)}`,
-          `84${normalized.slice(1)}`,
-          `0${normalized.slice(-9)}`,
-        ];
-
-        const { data, error: searchError } = await supabase
-          .from('profiles')
-          .select('id, username, display_name, avatar_url, phone_number')
-          .or(searchPatterns.map(p => `phone_number.eq.${p}`).join(','))
-          .limit(5);
-
-        if (searchError) {
-          throw searchError;
-        }
-
-        return (data as Profile[]) || [];
-      } else {
-        // Search by username or display_name (case-insensitive)
-        const { data, error: searchError } = await supabase
-          .from('profiles')
-          .select('id, username, display_name, avatar_url, phone_number')
-          .or(`username.ilike.%${trimmedQuery}%,display_name.ilike.%${trimmedQuery}%`)
-          .limit(5);
-
-        if (searchError) {
-          throw searchError;
-        }
-
-        return (data as Profile[]) || [];
+      if (!response.ok) {
+        throw new Error(response.error?.message || 'Search failed');
       }
+
+      return (response.data?.users as Profile[]) || [];
     } catch (err: any) {
-      console.error('User search error:', err);
+      console.error('[useUserSearch] Error:', err);
       setError(err.message || 'Lỗi khi tìm kiếm');
       return [];
     } finally {

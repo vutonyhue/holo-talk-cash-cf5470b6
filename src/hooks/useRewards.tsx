@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { api } from '@/lib/api';
 
 export interface RewardTask {
   id: string;
@@ -54,23 +55,22 @@ export function useRewards() {
   const fetchData = useCallback(async () => {
     if (!user) return;
     
-    const [tasksRes, rewardsRes] = await Promise.all([
-      supabase
-        .from('reward_tasks')
-        .select('*')
-        .order('sort_order'),
-      supabase
-        .from('user_rewards')
-        .select('*')
-        .eq('user_id', user.id)
-    ]);
+    try {
+      // Fetch tasks and user rewards via API
+      const [tasksRes, rewardsRes] = await Promise.all([
+        api.rewards.getTasks(),
+        api.rewards.getUserRewards(),
+      ]);
 
-    if (tasksRes.data) {
-      setTasks(tasksRes.data as RewardTask[]);
-    }
-    
-    if (rewardsRes.data) {
-      setUserRewards(rewardsRes.data as UserReward[]);
+      if (tasksRes.ok && tasksRes.data) {
+        setTasks(tasksRes.data as RewardTask[]);
+      }
+      
+      if (rewardsRes.ok && rewardsRes.data) {
+        setUserRewards(rewardsRes.data as UserReward[]);
+      }
+    } catch (error) {
+      console.error('[useRewards] Fetch error:', error);
     }
   }, [user]);
 
@@ -79,6 +79,7 @@ export function useRewards() {
     if (!session?.access_token) return;
 
     try {
+      // Still use Supabase functions for this as it's a special operation
       await supabase.functions.invoke('check-eligibility', {
         headers: {
           Authorization: `Bearer ${session.access_token}`
@@ -87,11 +88,11 @@ export function useRewards() {
       // Refresh data after checking eligibility
       await fetchData();
     } catch (error) {
-      console.error('Error checking eligibility:', error);
+      console.error('[useRewards] Error checking eligibility:', error);
     }
   }, [session?.access_token, fetchData]);
 
-  // Claim a reward
+  // Claim a reward via API
   const claimReward = useCallback(async (taskId: string): Promise<ClaimResult> => {
     if (!session?.access_token) {
       return { success: false, error: 'Not authenticated' };
@@ -100,20 +101,10 @@ export function useRewards() {
     setClaiming(taskId);
 
     try {
-      const { data, error } = await supabase.functions.invoke('claim-reward', {
-        body: { task_id: taskId },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`
-        }
-      });
+      const response = await api.rewards.claimReward(taskId);
 
-      if (error) {
-        console.error('Claim error:', error);
-        return { success: false, error: error.message };
-      }
-
-      if (data?.error) {
-        return { success: false, error: data.error };
+      if (!response.ok) {
+        return { success: false, error: response.error?.message || 'Failed to claim reward' };
       }
 
       // Refresh data after successful claim
@@ -121,11 +112,11 @@ export function useRewards() {
 
       return {
         success: true,
-        reward_amount: data.reward_amount,
-        task_name: data.task_name
+        reward_amount: (response.data as any)?.reward_amount,
+        task_name: (response.data as any)?.task_name
       };
-    } catch (error) {
-      console.error('Claim error:', error);
+    } catch (error: any) {
+      console.error('[useRewards] Claim error:', error);
       return { success: false, error: 'Failed to claim reward' };
     } finally {
       setClaiming(null);
@@ -149,7 +140,7 @@ export function useRewards() {
 
     init();
 
-    // Subscribe to realtime changes
+    // Subscribe to realtime changes - KEEP SUPABASE REALTIME
     const channel = supabase
       .channel('user_rewards_changes')
       .on(

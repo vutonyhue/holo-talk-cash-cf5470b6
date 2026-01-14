@@ -106,6 +106,7 @@ export interface PresignedUrlRequest {
   filename: string;
   contentType: string;
   bucket?: string;
+  path?: string;
 }
 
 export interface PresignedUrlResponse {
