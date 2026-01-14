@@ -77,24 +77,30 @@ export default function VideoCallModal({
   }, [remoteUsers]);
 
   // Play remote video tracks - triggered by remoteUsers changes
+  // Use requestAnimationFrame to batch DOM operations and prevent blocking
   useEffect(() => {
-    remoteUsers.forEach((user) => {
-      const uidKey = String(user.uid);
-      const container = remoteVideoRefs.current.get(uidKey);
-      
-      if (container && user.videoTrack) {
-        const trackKey = `${uidKey}-${user.videoTrack.getTrackId()}`;
-        if (!playedTracksRef.current.has(trackKey)) {
-          console.log('Playing remote video for user:', user.uid);
-          try {
-            user.videoTrack.play(container);
-            playedTracksRef.current.add(trackKey);
-          } catch (err) {
-            console.error('Error playing remote video:', err);
+    const frameId = requestAnimationFrame(() => {
+      remoteUsers.forEach((user) => {
+        const uidKey = String(user.uid);
+        const container = remoteVideoRefs.current.get(uidKey);
+        
+        if (container && user.videoTrack) {
+          const trackId = user.videoTrack.getTrackId?.() || 'unknown';
+          const trackKey = `${uidKey}-${trackId}`;
+          if (!playedTracksRef.current.has(trackKey)) {
+            console.log('Playing remote video for user:', user.uid);
+            try {
+              user.videoTrack.play(container);
+              playedTracksRef.current.add(trackKey);
+            } catch (err) {
+              console.error('Error playing remote video:', err);
+            }
           }
         }
-      }
+      });
     });
+    
+    return () => cancelAnimationFrame(frameId);
   }, [remoteUsers]);
 
   // Reset played tracks when modal closes
