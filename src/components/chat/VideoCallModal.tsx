@@ -314,6 +314,12 @@ export default function VideoCallModal({
                 >
                   Thử lại
                 </Button>
+                {/* Show configuration hint for credential errors */}
+                {(error?.includes('App ID') || error?.includes('vendor key') || error?.includes('appid')) && (
+                  <p className="text-xs text-white/50 text-center max-w-xs mt-2">
+                    💡 Lỗi cấu hình: Vui lòng kiểm tra AGORA_APP_ID và AGORA_APP_CERTIFICATE trong Supabase Secrets
+                  </p>
+                )}
               </div>
             </div>
           </>

@@ -181,9 +181,27 @@ serve(async (req) => {
     const APP_CERTIFICATE = Deno.env.get('AGORA_APP_CERTIFICATE');
 
     if (!APP_ID || !APP_CERTIFICATE) {
-      console.error('Missing Agora credentials');
+      console.error('Missing Agora credentials - check AGORA_APP_ID and AGORA_APP_CERTIFICATE secrets');
       return new Response(
-        JSON.stringify({ error: 'Agora credentials not configured' }),
+        JSON.stringify({ error: 'Agora credentials not configured. Please add AGORA_APP_ID and AGORA_APP_CERTIFICATE to Supabase secrets.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate App ID format (should be 32 hex characters)
+    if (APP_ID.length !== 32) {
+      console.error(`Invalid AGORA_APP_ID format - expected 32 chars, got ${APP_ID.length}`);
+      return new Response(
+        JSON.stringify({ error: `Invalid Agora App ID format (expected 32 characters, got ${APP_ID.length}). Please check your AGORA_APP_ID in Supabase secrets.` }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate App Certificate format (should be 32 hex characters)
+    if (APP_CERTIFICATE.length !== 32) {
+      console.error(`Invalid AGORA_APP_CERTIFICATE format - expected 32 chars, got ${APP_CERTIFICATE.length}`);
+      return new Response(
+        JSON.stringify({ error: `Invalid Agora App Certificate format (expected 32 characters, got ${APP_CERTIFICATE.length}). Please check your AGORA_APP_CERTIFICATE in Supabase secrets.` }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
