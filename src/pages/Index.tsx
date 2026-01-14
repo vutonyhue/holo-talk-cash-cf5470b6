@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { MessageCircle, Video, Wallet, Sparkles, Shield, Zap } from "lucide-react";
+import { MessageCircle, Video, Wallet, Sparkles, Shield, Zap, Download } from "lucide-react";
 
 const Index = () => {
   return (
@@ -30,8 +30,8 @@ const Index = () => {
           Nhắn tin, gọi video & gửi crypto - tất cả trong một ứng dụng siêu vui! 🎉
         </p>
 
-        {/* CTA Button */}
-        <div className="mb-16">
+        {/* CTA Buttons */}
+        <div className="mb-16 flex flex-col sm:flex-row gap-4">
           <Link to="/auth">
             <Button 
               size="lg" 
@@ -39,6 +39,16 @@ const Index = () => {
             >
               <Sparkles className="mr-2 h-5 w-5" />
               Bắt đầu ngay
+            </Button>
+          </Link>
+          <Link to="/install">
+            <Button 
+              size="lg" 
+              variant="outline"
+              className="bg-white/20 border-2 border-white text-white hover:bg-white hover:text-fun-purple font-bold text-lg px-8 py-6 rounded-2xl transform hover:scale-105 transition-all duration-300"
+            >
+              <Download className="mr-2 h-5 w-5" />
+              Cài đặt app
             </Button>
           </Link>
         </div>
