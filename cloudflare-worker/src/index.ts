@@ -1,9 +1,10 @@
 /**
- * FunChat API Gateway - Cloudflare Worker
+ * FunChat API Gateway - Cloudflare Worker (Extended)
  * 
  * This worker acts as an API gateway for FunChat, handling:
- * - API key verification with KV caching
- * - Rate limiting per API key
+ * - API key verification for SDK/third-party apps
+ * - JWT verification for authenticated user requests
+ * - Rate limiting per API key and per user
  * - Scope-based access control
  * - Origin validation
  * - Request forwarding to Supabase Edge Functions
@@ -16,9 +17,12 @@
 interface Env {
   API_KEY_CACHE: KVNamespace;
   RATE_LIMIT: KVNamespace;
+  JWKS_CACHE: KVNamespace;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
   SUPABASE_FUNCTIONS_URL: string;
+  SUPABASE_JWT_SECRET?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 interface KeyData {
@@ -38,14 +42,38 @@ interface RateLimitData {
   resetAt: number;
 }
 
+interface JWTPayload {
+  sub: string;
+  email?: string;
+  role?: string;
+  exp: number;
+  iat: number;
+  aud: string;
+}
+
+interface JWK {
+  kty: string;
+  kid: string;
+  use: string;
+  alg: string;
+  n: string;
+  e: string;
+}
+
+interface JWKS {
+  keys: JWK[];
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
 
 const CACHE_TTL = 300; // 5 minutes
+const JWKS_CACHE_TTL = 3600; // 1 hour
 const RATE_LIMIT_WINDOW = 3600; // 1 hour in seconds
+const USER_RATE_LIMIT = 1000; // requests per hour for authenticated users
 
-// Endpoint to required scope mapping
+// Endpoint to required scope mapping (for API key auth)
 const ENDPOINT_SCOPES: Record<string, Record<string, string>> = {
   '/api-chat': {
     GET: 'chat:read',
@@ -79,6 +107,25 @@ const ENDPOINT_SCOPES: Record<string, Record<string, string>> = {
   },
 };
 
+// User-authenticated routes (no API key needed, just JWT)
+const USER_ROUTES = [
+  '/v1/me',
+  '/v1/profiles',
+  '/v1/conversations',
+  '/v1/messages',
+  '/v1/users',
+  '/v1/reactions',
+  '/v1/read-receipts',
+  '/v1/media',
+  '/v1/rewards',
+];
+
+// Public routes (no auth needed)
+const PUBLIC_ROUTES = [
+  '/health',
+  '/',
+];
+
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -95,16 +142,16 @@ async function hashApiKey(key: string, salt: string): Promise<string> {
 }
 
 /**
- * Create standardized error response
+ * Create standardized success response
  */
-function errorResponse(
-  code: string,
-  message: string,
-  status: number,
+function successResponse(
+  data: unknown,
+  requestId: string,
   origin?: string
 ): Response {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
+    'X-Request-ID': requestId,
   };
 
   if (origin) {
@@ -114,24 +161,66 @@ function errorResponse(
 
   return new Response(
     JSON.stringify({
-      success: false,
+      ok: true,
+      data,
+      requestId,
+    }),
+    { status: 200, headers }
+  );
+}
+
+/**
+ * Create standardized error response
+ */
+function errorResponse(
+  code: string,
+  message: string,
+  status: number,
+  requestId: string,
+  origin?: string
+): Response {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    'X-Request-ID': requestId,
+  };
+
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  }
+
+  return new Response(
+    JSON.stringify({
+      ok: false,
       error: { code, message },
+      requestId,
     }),
     { status, headers }
   );
 }
 
 /**
+ * Generate request ID
+ */
+function generateRequestId(): string {
+  return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/**
  * Check if origin is allowed
  */
-function isOriginAllowed(origin: string | null, allowedOrigins: string[]): boolean {
-  if (!allowedOrigins || allowedOrigins.length === 0) {
+function isOriginAllowed(origin: string | null, allowedOrigins: string[], envAllowed?: string): boolean {
+  // Parse env allowed origins
+  const envOrigins = envAllowed?.split(',').map(o => o.trim()).filter(Boolean) || [];
+  const allAllowed = [...allowedOrigins, ...envOrigins];
+  
+  if (allAllowed.length === 0) {
     return true; // No restrictions
   }
   if (!origin) {
     return false;
   }
-  return allowedOrigins.some(allowed => {
+  return allAllowed.some(allowed => {
     if (allowed === '*') return true;
     if (allowed.startsWith('*.')) {
       const domain = allowed.slice(2);
@@ -139,6 +228,20 @@ function isOriginAllowed(origin: string | null, allowedOrigins: string[]): boole
     }
     return origin === allowed;
   });
+}
+
+/**
+ * Check if path is a user route
+ */
+function isUserRoute(pathname: string): boolean {
+  return USER_ROUTES.some(route => pathname.startsWith(route));
+}
+
+/**
+ * Check if path is a public route
+ */
+function isPublicRoute(pathname: string): boolean {
+  return PUBLIC_ROUTES.includes(pathname);
 }
 
 /**
@@ -151,6 +254,118 @@ function getRequiredScope(pathname: string, method: string): string | null {
     }
   }
   return null;
+}
+
+// ============================================================================
+// JWT Verification (JWKS)
+// ============================================================================
+
+/**
+ * Base64URL decode
+ */
+function base64UrlDecode(str: string): Uint8Array {
+  // Add padding if needed
+  const pad = str.length % 4;
+  if (pad) {
+    str += '='.repeat(4 - pad);
+  }
+  // Convert base64url to base64
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  // Decode
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Parse JWT without verification (just to get header and payload)
+ */
+function parseJwt(token: string): { header: any; payload: JWTPayload } | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const header = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[0])));
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1])));
+
+    return { header, payload };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verify JWT using HMAC-SHA256 (Supabase uses HS256 with JWT secret)
+ */
+async function verifyJwtWithSecret(token: string, secret: string): Promise<JWTPayload | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    const signatureInput = `${parts[0]}.${parts[1]}`;
+    const signature = base64UrlDecode(parts[2]);
+
+    const isValid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      signature,
+      encoder.encode(signatureInput)
+    );
+
+    if (!isValid) return null;
+
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1]))) as JWTPayload;
+
+    // Check expiration
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+
+    return payload;
+  } catch (error) {
+    console.error('JWT verification error:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract and verify JWT from Authorization header
+ */
+async function verifyAuthHeader(authHeader: string | null, env: Env): Promise<JWTPayload | null> {
+  if (!authHeader?.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.substring(7);
+  
+  // Use JWT secret for verification (Supabase uses HS256)
+  if (env.SUPABASE_JWT_SECRET) {
+    return verifyJwtWithSecret(token, env.SUPABASE_JWT_SECRET);
+  }
+
+  // Fallback: just parse without verification (not recommended for production)
+  console.warn('JWT_SECRET not configured, parsing JWT without verification');
+  const parsed = parseJwt(token);
+  if (!parsed) return null;
+  
+  // Check expiration
+  if (parsed.payload.exp && parsed.payload.exp < Math.floor(Date.now() / 1000)) {
+    return null;
+  }
+
+  return parsed.payload;
 }
 
 // ============================================================================
@@ -259,14 +474,14 @@ async function verifyApiKey(apiKey: string, env: Env): Promise<KeyData | null> {
  * Check and update rate limit
  */
 async function checkRateLimit(
-  keyId: string,
+  identifier: string,
   limit: number,
   env: Env
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
   const now = Math.floor(Date.now() / 1000);
   const windowStart = now - (now % RATE_LIMIT_WINDOW);
   const resetAt = windowStart + RATE_LIMIT_WINDOW;
-  const key = `rl:${keyId}:${windowStart}`;
+  const key = `rl:${identifier}:${windowStart}`;
 
   // Get current count
   const data = await env.RATE_LIMIT.get(key, 'json') as RateLimitData | null;
@@ -287,121 +502,71 @@ async function checkRateLimit(
 }
 
 // ============================================================================
-// Main Handler
+// Route Handlers
 // ============================================================================
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const origin = request.headers.get('Origin');
+/**
+ * Handle user-authenticated routes (JWT-based)
+ */
+async function handleUserRoute(
+  request: Request,
+  env: Env,
+  userId: string,
+  requestId: string,
+  origin: string | null
+): Promise<Response> {
+  const url = new URL(request.url);
+  
+  // Check rate limit for user
+  const rateLimit = await checkRateLimit(`user:${userId}`, USER_RATE_LIMIT, env);
+  if (!rateLimit.allowed) {
+    const response = errorResponse('RATE_LIMITED', 'Rate limit exceeded', 429, requestId, origin || undefined);
+    response.headers.set('X-RateLimit-Limit', USER_RATE_LIMIT.toString());
+    response.headers.set('X-RateLimit-Remaining', '0');
+    response.headers.set('X-RateLimit-Reset', rateLimit.resetAt.toString());
+    response.headers.set('Retry-After', (rateLimit.resetAt - Math.floor(Date.now() / 1000)).toString());
+    return response;
+  }
 
-    // Handle CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': origin || '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-funchat-api-key',
-          'Access-Control-Max-Age': '86400',
-          'Access-Control-Allow-Credentials': 'true',
-        },
-      });
-    }
+  // Map v1 routes to Supabase Edge Functions
+  let targetPath = url.pathname;
+  
+  // Route mapping: /v1/* -> /api-*
+  if (targetPath.startsWith('/v1/me')) {
+    targetPath = targetPath.replace('/v1/me', '/api-users/me');
+  } else if (targetPath.startsWith('/v1/profiles')) {
+    targetPath = targetPath.replace('/v1/profiles', '/api-users/profiles');
+  } else if (targetPath.startsWith('/v1/conversations')) {
+    targetPath = targetPath.replace('/v1/conversations', '/api-chat/conversations');
+  } else if (targetPath.startsWith('/v1/messages')) {
+    targetPath = targetPath.replace('/v1/messages', '/api-chat/messages');
+  } else if (targetPath.startsWith('/v1/users')) {
+    targetPath = targetPath.replace('/v1/users', '/api-users');
+  } else if (targetPath.startsWith('/v1/reactions')) {
+    targetPath = targetPath.replace('/v1/reactions', '/api-chat/reactions');
+  } else if (targetPath.startsWith('/v1/read-receipts')) {
+    targetPath = targetPath.replace('/v1/read-receipts', '/api-chat/read-receipts');
+  } else if (targetPath.startsWith('/v1/media')) {
+    targetPath = targetPath.replace('/v1/media', '/api-chat/media');
+  } else if (targetPath.startsWith('/v1/rewards')) {
+    targetPath = targetPath.replace('/v1/rewards', '/api-rewards');
+  }
 
-    // Health check endpoint
-    if (url.pathname === '/' || url.pathname === '/health') {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            status: 'healthy',
-            version: '1.0.0',
-            timestamp: new Date().toISOString(),
-          },
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': origin || '*',
-          },
-        }
-      );
-    }
+  // Forward request to Supabase Edge Functions
+  const targetUrl = `${env.SUPABASE_FUNCTIONS_URL}${targetPath}${url.search}`;
 
-    // Get API key from header
-    const apiKey = request.headers.get('x-funchat-api-key');
-    if (!apiKey) {
-      return errorResponse('UNAUTHORIZED', 'Missing API key', 401, origin || undefined);
-    }
+  const forwardHeaders = new Headers(request.headers);
+  forwardHeaders.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_KEY}`);
+  forwardHeaders.set('x-user-id', userId);
+  forwardHeaders.set('x-request-id', requestId);
 
-    // Validate API key format
-    if (!apiKey.startsWith('fc_live_') && !apiKey.startsWith('fc_test_')) {
-      return errorResponse('INVALID_API_KEY', 'Invalid API key format', 401, origin || undefined);
-    }
+  const forwardRequest = new Request(targetUrl, {
+    method: request.method,
+    headers: forwardHeaders,
+    body: request.body,
+  });
 
-    // Verify API key
-    const keyData = await verifyApiKey(apiKey, env);
-    if (!keyData) {
-      return errorResponse('INVALID_API_KEY', 'Invalid API key', 401, origin || undefined);
-    }
-
-    // Check if key is active
-    if (!keyData.is_active) {
-      return errorResponse('API_KEY_INACTIVE', 'API key is inactive', 403, origin || undefined);
-    }
-
-    // Check expiration
-    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
-      return errorResponse('API_KEY_EXPIRED', 'API key has expired', 403, origin || undefined);
-    }
-
-    // Check origin
-    if (!isOriginAllowed(origin, keyData.allowed_origins)) {
-      return errorResponse('ORIGIN_NOT_ALLOWED', 'Origin not allowed', 403, origin || undefined);
-    }
-
-    // Check scope
-    const requiredScope = getRequiredScope(url.pathname, request.method);
-    if (requiredScope && !keyData.scopes.includes(requiredScope)) {
-      return errorResponse(
-        'INSUFFICIENT_SCOPE',
-        `Required scope: ${requiredScope}`,
-        403,
-        origin || undefined
-      );
-    }
-
-    // Check rate limit
-    const rateLimit = await checkRateLimit(keyData.id, keyData.rate_limit, env);
-    if (!rateLimit.allowed) {
-      const response = errorResponse('RATE_LIMITED', 'Rate limit exceeded', 429, origin || undefined);
-      response.headers.set('X-RateLimit-Limit', keyData.rate_limit.toString());
-      response.headers.set('X-RateLimit-Remaining', '0');
-      response.headers.set('X-RateLimit-Reset', rateLimit.resetAt.toString());
-      response.headers.set('Retry-After', (rateLimit.resetAt - Math.floor(Date.now() / 1000)).toString());
-      return response;
-    }
-
-    // Forward request to Supabase Edge Functions
-    const targetUrl = `${env.SUPABASE_FUNCTIONS_URL}${url.pathname}${url.search}`;
-
-    const forwardHeaders = new Headers(request.headers);
-    forwardHeaders.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_KEY}`);
-    forwardHeaders.set('x-funchat-key-id', keyData.id);
-    forwardHeaders.set('x-funchat-user-id', keyData.user_id);
-    if (keyData.app_id) {
-      forwardHeaders.set('x-funchat-app-id', keyData.app_id);
-    }
-    forwardHeaders.delete('x-funchat-api-key');
-
-    const forwardRequest = new Request(targetUrl, {
-      method: request.method,
-      headers: forwardHeaders,
-      body: request.body,
-    });
-
+  try {
     const response = await fetch(forwardRequest);
 
     // Clone response and add headers
@@ -410,7 +575,8 @@ export default {
       responseHeaders.set('Access-Control-Allow-Origin', origin);
       responseHeaders.set('Access-Control-Allow-Credentials', 'true');
     }
-    responseHeaders.set('X-RateLimit-Limit', keyData.rate_limit.toString());
+    responseHeaders.set('X-Request-ID', requestId);
+    responseHeaders.set('X-RateLimit-Limit', USER_RATE_LIMIT.toString());
     responseHeaders.set('X-RateLimit-Remaining', rateLimit.remaining.toString());
     responseHeaders.set('X-RateLimit-Reset', rateLimit.resetAt.toString());
 
@@ -419,5 +585,169 @@ export default {
       statusText: response.statusText,
       headers: responseHeaders,
     });
+  } catch (error) {
+    console.error('Error forwarding request:', error);
+    return errorResponse('INTERNAL_ERROR', 'Failed to process request', 500, requestId, origin || undefined);
+  }
+}
+
+/**
+ * Handle API key authenticated routes (for SDK/third-party apps)
+ */
+async function handleApiKeyRoute(
+  request: Request,
+  env: Env,
+  keyData: KeyData,
+  requestId: string,
+  origin: string | null
+): Promise<Response> {
+  const url = new URL(request.url);
+
+  // Check scope
+  const requiredScope = getRequiredScope(url.pathname, request.method);
+  if (requiredScope && !keyData.scopes.includes(requiredScope)) {
+    return errorResponse(
+      'INSUFFICIENT_SCOPE',
+      `Required scope: ${requiredScope}`,
+      403,
+      requestId,
+      origin || undefined
+    );
+  }
+
+  // Check rate limit
+  const rateLimit = await checkRateLimit(`key:${keyData.id}`, keyData.rate_limit, env);
+  if (!rateLimit.allowed) {
+    const response = errorResponse('RATE_LIMITED', 'Rate limit exceeded', 429, requestId, origin || undefined);
+    response.headers.set('X-RateLimit-Limit', keyData.rate_limit.toString());
+    response.headers.set('X-RateLimit-Remaining', '0');
+    response.headers.set('X-RateLimit-Reset', rateLimit.resetAt.toString());
+    response.headers.set('Retry-After', (rateLimit.resetAt - Math.floor(Date.now() / 1000)).toString());
+    return response;
+  }
+
+  // Forward request to Supabase Edge Functions
+  const targetUrl = `${env.SUPABASE_FUNCTIONS_URL}${url.pathname}${url.search}`;
+
+  const forwardHeaders = new Headers(request.headers);
+  forwardHeaders.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_KEY}`);
+  forwardHeaders.set('x-funchat-key-id', keyData.id);
+  forwardHeaders.set('x-funchat-user-id', keyData.user_id);
+  forwardHeaders.set('x-request-id', requestId);
+  if (keyData.app_id) {
+    forwardHeaders.set('x-funchat-app-id', keyData.app_id);
+  }
+  forwardHeaders.delete('x-funchat-api-key');
+
+  const forwardRequest = new Request(targetUrl, {
+    method: request.method,
+    headers: forwardHeaders,
+    body: request.body,
+  });
+
+  const response = await fetch(forwardRequest);
+
+  // Clone response and add headers
+  const responseHeaders = new Headers(response.headers);
+  if (origin) {
+    responseHeaders.set('Access-Control-Allow-Origin', origin);
+    responseHeaders.set('Access-Control-Allow-Credentials', 'true');
+  }
+  responseHeaders.set('X-Request-ID', requestId);
+  responseHeaders.set('X-RateLimit-Limit', keyData.rate_limit.toString());
+  responseHeaders.set('X-RateLimit-Remaining', rateLimit.remaining.toString());
+  responseHeaders.set('X-RateLimit-Reset', rateLimit.resetAt.toString());
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+  });
+}
+
+// ============================================================================
+// Main Handler
+// ============================================================================
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const origin = request.headers.get('Origin');
+    const requestId = generateRequestId();
+
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      const corsOrigin = isOriginAllowed(origin, [], env.ALLOWED_ORIGINS) ? origin : null;
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': corsOrigin || '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-funchat-api-key, x-request-id',
+          'Access-Control-Max-Age': '86400',
+          'Access-Control-Allow-Credentials': 'true',
+        },
+      });
+    }
+
+    // Health check endpoint
+    if (isPublicRoute(url.pathname)) {
+      return successResponse(
+        {
+          status: 'healthy',
+          version: '2.0.0',
+          timestamp: new Date().toISOString(),
+        },
+        requestId,
+        origin || undefined
+      );
+    }
+
+    // Check for API key (SDK/third-party apps)
+    const apiKey = request.headers.get('x-funchat-api-key');
+    if (apiKey) {
+      // Validate API key format
+      if (!apiKey.startsWith('fc_live_') && !apiKey.startsWith('fc_test_')) {
+        return errorResponse('INVALID_API_KEY', 'Invalid API key format', 401, requestId, origin || undefined);
+      }
+
+      // Verify API key
+      const keyData = await verifyApiKey(apiKey, env);
+      if (!keyData) {
+        return errorResponse('INVALID_API_KEY', 'Invalid API key', 401, requestId, origin || undefined);
+      }
+
+      // Check if key is active
+      if (!keyData.is_active) {
+        return errorResponse('API_KEY_INACTIVE', 'API key is inactive', 403, requestId, origin || undefined);
+      }
+
+      // Check expiration
+      if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+        return errorResponse('API_KEY_EXPIRED', 'API key has expired', 403, requestId, origin || undefined);
+      }
+
+      // Check origin
+      if (!isOriginAllowed(origin, keyData.allowed_origins, env.ALLOWED_ORIGINS)) {
+        return errorResponse('ORIGIN_NOT_ALLOWED', 'Origin not allowed', 403, requestId, origin || undefined);
+      }
+
+      return handleApiKeyRoute(request, env, keyData, requestId, origin);
+    }
+
+    // Check for user routes (JWT auth)
+    if (isUserRoute(url.pathname)) {
+      const authHeader = request.headers.get('Authorization');
+      const jwtPayload = await verifyAuthHeader(authHeader, env);
+
+      if (!jwtPayload) {
+        return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, requestId, origin || undefined);
+      }
+
+      return handleUserRoute(request, env, jwtPayload.sub, requestId, origin);
+    }
+
+    // Unknown route
+    return errorResponse('NOT_FOUND', 'Endpoint not found', 404, requestId, origin || undefined);
   },
 };
