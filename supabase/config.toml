@@ -72,6 +72,3 @@ verify_jwt = false
 
 [functions.ai-image]
 verify_jwt = false
-
-[functions.agora-token]
-verify_jwt = false
