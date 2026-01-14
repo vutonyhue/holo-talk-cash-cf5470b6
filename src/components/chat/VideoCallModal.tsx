@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
@@ -10,10 +10,12 @@ import {
   Users,
   ScreenShare,
   MessageCircle,
-  Loader2
+  Loader2,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { useAgoraCall } from '@/hooks/useAgoraCall';
-import { IAgoraRTCRemoteUser, IRemoteVideoTrack } from 'agora-rtc-sdk-ng';
+import { IRemoteVideoTrack } from 'agora-rtc-sdk-ng';
 
 interface VideoCallModalProps {
   open: boolean;
@@ -24,6 +26,9 @@ interface VideoCallModalProps {
   isGroup?: boolean;
   channelName?: string;
 }
+
+// Define clear call states to prevent UI overlap
+type CallDisplayState = 'CONNECTING' | 'WAITING' | 'REMOTE_VIDEO' | 'REMOTE_NO_VIDEO' | 'ERROR';
 
 export default function VideoCallModal({
   open,
@@ -47,16 +52,30 @@ export default function VideoCallModal({
     isVideoOff,
     isConnecting,
     error,
+    networkQuality,
     toggleMute,
     toggleVideo,
     leaveChannel,
     retryConnection,
-    setLocalVideoContainer,
   } = useAgoraCall({
     channelName: channelName || '',
     enabled: open && !!channelName,
     isVideoCall: callType === 'video',
   });
+
+  // Determine the call display state - ONLY ONE state at a time
+  const callDisplayState = useMemo((): CallDisplayState => {
+    if (error) return 'ERROR';
+    if (isConnecting) return 'CONNECTING';
+    if (!isJoined) return 'CONNECTING';
+    
+    const hasRemoteVideo = remoteUsers.some(u => u.videoTrack);
+    
+    if (remoteUsers.length > 0 && hasRemoteVideo) return 'REMOTE_VIDEO';
+    if (remoteUsers.length > 0 && !hasRemoteVideo) return 'REMOTE_NO_VIDEO';
+    
+    return 'WAITING';
+  }, [error, isConnecting, isJoined, remoteUsers]);
 
   // Set up local video container
   useEffect(() => {
@@ -74,10 +93,10 @@ export default function VideoCallModal({
         hasAudio: !!u.audioTrack 
       }))
     );
-  }, [remoteUsers]);
+    console.log('VideoCallModal: callDisplayState =', callDisplayState);
+  }, [remoteUsers, callDisplayState]);
 
   // Play remote video tracks - triggered by remoteUsers changes
-  // Use requestAnimationFrame to batch DOM operations and prevent blocking
   useEffect(() => {
     const frameId = requestAnimationFrame(() => {
       remoteUsers.forEach((user) => {
@@ -142,7 +161,6 @@ export default function VideoCallModal({
     return (el: HTMLDivElement | null) => {
       if (el) {
         remoteVideoRefs.current.set(uid, el);
-        // Play immediately when element mounts and track is available
         if (videoTrack) {
           const trackKey = `${uid}-${videoTrack.getTrackId()}`;
           if (!playedTracksRef.current.has(trackKey)) {
@@ -161,17 +179,61 @@ export default function VideoCallModal({
     };
   }, []);
 
+  // Get network quality indicator
+  const getNetworkQualityIndicator = () => {
+    if (!networkQuality) return null;
+    
+    const quality = Math.min(networkQuality.uplink, networkQuality.downlink);
+    
+    if (quality <= 2) {
+      return { icon: Wifi, color: 'text-green-400', label: 'Tốt' };
+    } else if (quality <= 4) {
+      return { icon: Wifi, color: 'text-yellow-400', label: 'Trung bình' };
+    } else {
+      return { icon: WifiOff, color: 'text-red-400', label: 'Yếu' };
+    }
+  };
+
+  const networkIndicator = getNetworkQualityIndicator();
+
   if (!open) return null;
 
-  // Check if any remote user has video
-  const hasRemoteVideo = remoteUsers.some(u => u.videoTrack);
+  // Gradient background component
+  const GradientBackground = () => (
+    <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
+      <div className="absolute inset-0 opacity-30">
+        <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
+        <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-pink-500 blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-cyan-500 blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
+    </div>
+  );
+
+  // Participant Avatar component
+  const ParticipantAvatar = ({ size = 'large' }: { size?: 'large' | 'medium' }) => (
+    <Avatar className={`${size === 'large' ? 'w-32 h-32' : 'w-24 h-24'} ring-4 ring-white/20 shadow-2xl`}>
+      <AvatarImage src={participantAvatar} />
+      <AvatarFallback className={`${size === 'large' ? 'text-4xl' : 'text-2xl'} font-bold gradient-primary text-white`}>
+        {participantName.slice(0, 2).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
+      {/* Network quality indicator */}
+      {networkIndicator && isJoined && (
+        <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/40 rounded-full px-3 py-1.5">
+          <networkIndicator.icon className={`w-4 h-4 ${networkIndicator.color}`} />
+          <span className="text-white/80 text-xs">{networkIndicator.label}</span>
+        </div>
+      )}
+
       {/* Remote Video / Avatar Background */}
       <div className="flex-1 relative flex items-center justify-center">
-        {/* If there are remote users with video, show their video */}
-        {remoteUsers.length > 0 && hasRemoteVideo ? (
+        
+        {/* STATE: REMOTE_VIDEO - Remote user has video */}
+        {callDisplayState === 'REMOTE_VIDEO' && (
           <div className="absolute inset-0">
             {remoteUsers.filter(u => u.videoTrack).map((user) => (
               <div 
@@ -181,97 +243,85 @@ export default function VideoCallModal({
               />
             ))}
           </div>
-        ) : remoteUsers.length > 0 && !hasRemoteVideo ? (
-          /* Remote user connected but camera off */
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
-            <div className="absolute inset-0 opacity-30">
-              <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
-              <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-pink-500 blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-            </div>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <Avatar className="w-32 h-32 ring-4 ring-white/20 shadow-2xl mb-6">
-                <AvatarImage src={participantAvatar} />
-                <AvatarFallback className="text-4xl font-bold gradient-primary text-white">
-                  {participantName.slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <h2 className="text-2xl font-bold text-white mb-2">{participantName}</h2>
+        )}
+
+        {/* STATE: REMOTE_NO_VIDEO - Remote user connected but camera off */}
+        {callDisplayState === 'REMOTE_NO_VIDEO' && (
+          <>
+            <GradientBackground />
+            <div className="relative z-10 flex flex-col items-center">
+              <ParticipantAvatar />
+              <h2 className="text-2xl font-bold text-white mt-6 mb-2">{participantName}</h2>
               <span className="text-lg text-white/80">{formatDuration(callDuration)}</span>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="flex items-center gap-2 mt-3">
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                 <p className="text-white/60 text-sm">
                   {callType === 'video' ? 'Đã tắt camera' : 'Cuộc gọi thoại'}
                 </p>
               </div>
             </div>
-          </div>
-        ) : (
-          /* No remote users - waiting or gradient background */
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-violet-900 to-pink-900">
-            <div className="absolute inset-0 opacity-30">
-              <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-purple-500 blur-3xl animate-pulse" />
-              <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-pink-500 blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-cyan-500 blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
-            </div>
-          </div>
+          </>
         )}
 
-        {/* Participant info (shown when no remote video) */}
-        {remoteUsers.length === 0 || !remoteUsers[0].videoTrack ? (
-          <div className="relative z-10 flex flex-col items-center">
-            <Avatar className="w-32 h-32 ring-4 ring-white/20 shadow-2xl mb-6">
-              <AvatarImage src={participantAvatar} />
-              <AvatarFallback className="text-4xl font-bold gradient-primary text-white">
-                {participantName.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            
-            <h2 className="text-2xl font-bold text-white mb-2">{participantName}</h2>
-            
-            <div className="flex items-center gap-2 text-white/80">
-              {isGroup && <Users className="w-4 h-4" />}
-              <span className="text-lg">{formatDuration(callDuration)}</span>
+        {/* STATE: WAITING - Joined but no remote users */}
+        {callDisplayState === 'WAITING' && (
+          <>
+            <GradientBackground />
+            <div className="relative z-10 flex flex-col items-center">
+              <ParticipantAvatar />
+              <h2 className="text-2xl font-bold text-white mt-6 mb-2">{participantName}</h2>
+              <div className="flex items-center gap-2 text-white/80">
+                {isGroup && <Users className="w-4 h-4" />}
+                <span className="text-lg">{formatDuration(callDuration)}</span>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-white/60 text-sm">Đang chờ người khác tham gia...</span>
+              </div>
             </div>
-            
-            {/* Status indicator */}
-            <div className="mt-4 flex flex-col items-center gap-2">
-              {isConnecting ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 text-white animate-spin" />
-                  <span className="text-white/60 text-sm">Đang kết nối...</span>
-                </div>
-              ) : isJoined ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                  <span className="text-white/60 text-sm">
-                    {remoteUsers.length > 0 ? 'Đã kết nối' : 'Đang chờ người khác tham gia...'}
-                  </span>
-                </div>
-              ) : error ? (
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-red-400 text-sm text-center">{error}</span>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={retryConnection}
-                    className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-                  >
-                    Thử lại
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                  <span className="text-white/60 text-sm">Đang gọi...</span>
-                </div>
-              )}
+          </>
+        )}
+
+        {/* STATE: CONNECTING - Not yet joined */}
+        {callDisplayState === 'CONNECTING' && (
+          <>
+            <GradientBackground />
+            <div className="relative z-10 flex flex-col items-center">
+              <ParticipantAvatar />
+              <h2 className="text-2xl font-bold text-white mt-6 mb-2">{participantName}</h2>
+              <div className="mt-4 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                <span className="text-white/60 text-sm">Đang kết nối...</span>
+              </div>
             </div>
-          </div>
-        ) : null}
+          </>
+        )}
+
+        {/* STATE: ERROR - Connection error */}
+        {callDisplayState === 'ERROR' && (
+          <>
+            <GradientBackground />
+            <div className="relative z-10 flex flex-col items-center">
+              <ParticipantAvatar />
+              <h2 className="text-2xl font-bold text-white mt-6 mb-2">{participantName}</h2>
+              <div className="mt-4 flex flex-col items-center gap-3">
+                <span className="text-red-400 text-sm text-center max-w-xs">{error}</span>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={retryConnection}
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                >
+                  Thử lại
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Additional remote users (for group calls) */}
         {remoteUsers.length > 1 && (
-          <div className="absolute top-4 right-4 flex flex-col gap-2">
+          <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
             {remoteUsers.slice(1).map((user) => (
               <div 
                 key={user.uid}
@@ -286,7 +336,7 @@ export default function VideoCallModal({
         {callType === 'video' && !isVideoOff && (
           <div 
             ref={localVideoContainerRef}
-            className="absolute bottom-24 right-6 w-40 h-56 rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/20 bg-black"
+            className="absolute bottom-24 right-6 w-40 h-56 rounded-2xl overflow-hidden shadow-2xl ring-2 ring-white/20 bg-black z-10"
           />
         )}
       </div>
