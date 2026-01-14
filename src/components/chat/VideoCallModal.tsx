@@ -103,10 +103,11 @@ export default function VideoCallModal({
     return () => cancelAnimationFrame(frameId);
   }, [remoteUsers]);
 
-  // Reset played tracks when modal closes
+  // Reset refs when modal closes
   useEffect(() => {
     if (!open) {
       playedTracksRef.current.clear();
+      remoteVideoRefs.current.clear();
     }
   }, [open]);
 
