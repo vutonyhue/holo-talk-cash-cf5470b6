@@ -557,8 +557,12 @@ async function handleUserRoute(
 
   const forwardHeaders = new Headers(request.headers);
   forwardHeaders.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_KEY}`);
-  forwardHeaders.set('x-user-id', userId);
+  // Set auth mode and user info for dual auth support in Edge Functions
+  forwardHeaders.set('x-auth-mode', 'jwt');
+  forwardHeaders.set('x-funchat-user-id', userId);
   forwardHeaders.set('x-request-id', requestId);
+  // JWT users get full access to their own data
+  forwardHeaders.set('x-funchat-scopes', 'chat:read,chat:write,users:read,users:write,rewards:read,rewards:write');
 
   const forwardRequest = new Request(targetUrl, {
     method: request.method,
@@ -631,8 +635,11 @@ async function handleApiKeyRoute(
 
   const forwardHeaders = new Headers(request.headers);
   forwardHeaders.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_KEY}`);
-  forwardHeaders.set('x-funchat-key-id', keyData.id);
+  // Set auth mode for dual auth support in Edge Functions
+  forwardHeaders.set('x-auth-mode', 'api_key');
+  forwardHeaders.set('x-funchat-api-key-id', keyData.id);
   forwardHeaders.set('x-funchat-user-id', keyData.user_id);
+  forwardHeaders.set('x-funchat-scopes', keyData.scopes.join(','));
   forwardHeaders.set('x-request-id', requestId);
   if (keyData.app_id) {
     forwardHeaders.set('x-funchat-app-id', keyData.app_id);
