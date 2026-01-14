@@ -68,6 +68,10 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
   const [pendingCallType, setPendingCallType] = useState<'voice' | 'video'>('voice');
   const [isConnecting, setIsConnecting] = useState(false);
   
+  // Phone search state
+  const [searchResult, setSearchResult] = useState<any>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  
   const { searchByPhone, isSearching, error: searchError, clearError } = usePhoneSearch();
 
   useEffect(() => {
@@ -204,12 +208,45 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     }
   };
 
+  // Debounced phone search
+  useEffect(() => {
+    const digitsOnly = searchQuery.replace(/\D/g, '');
+    
+    // Reset if query is too short
+    if (digitsOnly.length < 9) {
+      setSearchResult(null);
+      setHasSearched(false);
+      return;
+    }
+    
+    // Debounce the search
+    const timer = setTimeout(async () => {
+      clearError();
+      const result = await searchByPhone(searchQuery);
+      setSearchResult(result);
+      setHasSearched(true);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const filteredCalls = calls.filter(call => {
     const { name, phone } = getContactInfo(call);
     const query = searchQuery.toLowerCase();
     return name.toLowerCase().includes(query) || 
            (phone && phone.includes(searchQuery));
   });
+
+  // Handle call from search result
+  const handleCallFromSearch = (searchedProfile: any, callType: 'voice' | 'video') => {
+    if (searchedProfile.id === profile?.id) {
+      toast.error('Không thể gọi cho chính mình');
+      return;
+    }
+    setFoundProfile(searchedProfile);
+    setPendingCallType(callType);
+    setShowCallConfirm(true);
+  };
 
   // Handle phone dial
   const handlePhoneDial = async (phoneNumber: string, callType: 'voice' | 'video') => {
@@ -330,6 +367,61 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
       </div>
 
       <ScrollArea className="flex-1">
+        {/* Search Result Section */}
+        {hasSearched && searchQuery && (
+          <div className="px-2 py-3">
+            <p className="text-sm text-muted-foreground mb-2 px-2">Kết quả tìm kiếm</p>
+            
+            {isSearching ? (
+              <div className="flex items-center gap-3 p-2">
+                <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
+                <span className="text-sm text-muted-foreground">Đang tìm kiếm...</span>
+              </div>
+            ) : searchResult ? (
+              <div className="w-full p-2 rounded-lg flex items-center gap-3 bg-muted/50">
+                <Avatar className="w-10 h-10">
+                  <AvatarImage src={searchResult.avatar_url || undefined} />
+                  <AvatarFallback className="gradient-accent text-white text-sm font-semibold">
+                    {(searchResult.display_name || searchResult.username).slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 text-left min-w-0">
+                  <span className="font-medium block truncate">
+                    {searchResult.display_name || searchResult.username}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {searchResult.phone_number}
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-9 w-9 rounded-full hover:bg-primary/10"
+                    onClick={() => handleCallFromSearch(searchResult, 'voice')}
+                  >
+                    <Phone className="w-4 h-4 text-primary" />
+                  </Button>
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-9 w-9 rounded-full hover:bg-primary/10"
+                    onClick={() => handleCallFromSearch(searchResult, 'video')}
+                  >
+                    <Video className="w-4 h-4 text-primary" />
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-2 text-sm text-muted-foreground">
+                Không tìm thấy người dùng với số điện thoại này
+              </div>
+            )}
+            
+            <Separator className="mt-3 mx-2" />
+          </div>
+        )}
+
         {/* Favourites Section */}
         <div className="px-2 py-3">
           <p className="text-sm text-muted-foreground mb-2 px-2">Ưa thích</p>
