@@ -21,11 +21,11 @@ compatibility_flags = ["nodejs_compat"]
 
 [[kv_namespaces]]
 binding = "API_KEY_CACHE"
-id = "__API_KEY_CACHE_ID__"
+id = "8c24ac5e7cad41098e28107295df6e9d"
 
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "__RATE_LIMIT_ID__"
+id = "3bc338be1bf9492182af77634f580e9b"
 
 [[kv_namespaces]]
 binding = "JWKS_CACHE"
@@ -38,7 +38,7 @@ id = "7d76aae6b6fb45618a950ce732512f03"
 [vars]
 SUPABASE_FUNCTIONS_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1"
 # Comma-separated list of allowed origins
-ALLOWED_ORIGINS = "https://holo-talk-cash.lovable.app,https://preview.lovable.app"
+ALLOWED_ORIGINS = "https://holo-talk-cash.lovable.app,https://preview.lovable.app,https://id-preview--95ab1465-109c-431b-9708-379f2eb0fa9b.lovable.app,*.lovable.app,*.lovableproject.com"
 
 # ============================================================================
 # Secrets (set via `wrangler secret put` or `npm run setup:secrets`)
