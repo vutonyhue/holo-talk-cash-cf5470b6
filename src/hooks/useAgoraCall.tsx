@@ -302,7 +302,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ channelName, uid: stableUid, role: 1 }),
+          body: JSON.stringify({ channel: channelName, uid: stableUid, role: 1 }),
         });
 
         agoraLog.debug('Token', 'Response received', { 
