@@ -8,7 +8,7 @@ import AgoraRTC, {
 import { supabase } from '@/integrations/supabase/client';
 
 // Cloudflare Worker URL for Agora token generation
-const AGORA_TOKEN_WORKER_URL = 'https://agora-token-worker-v2.hieu-le-010.workers.dev';
+const AGORA_TOKEN_WORKER_URL = 'https://agora-token-worker.india-25d.workers.dev';
 
 // ============= AGORA LOGGING UTILITY =============
 const agoraLog = {
