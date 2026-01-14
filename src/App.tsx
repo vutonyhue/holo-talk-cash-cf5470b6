@@ -18,6 +18,7 @@ import ApiDocs from "./pages/ApiDocs";
 import DeveloperPortal from "./pages/DeveloperPortal";
 import Rewards from "./pages/Rewards";
 import Widget from "./pages/Widget";
+import Install from "./pages/Install";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
             <Route path="/developer" element={<DeveloperPortal />} />
             <Route path="/rewards" element={<Rewards />} />
             <Route path="/widget" element={<Widget />} />
+            <Route path="/install" element={<Install />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
