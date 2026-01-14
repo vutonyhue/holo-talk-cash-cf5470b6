@@ -643,10 +643,11 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   }, [channelName, fetchToken, isVideoCall, setupEventListeners, waitForClientReady, enabled, safeSetState]);
 
   // Leave channel with full cleanup
-  const leaveChannel = useCallback(async () => {
+  const leaveChannel = useCallback(async (options?: { skipStateReset?: boolean }) => {
     agoraLog.info('Leave', '=== Starting leave process ===', {
       hasJoined: hasJoinedRef.current,
-      connectionState: clientRef.current?.connectionState
+      connectionState: clientRef.current?.connectionState,
+      skipStateReset: !!options?.skipStateReset,
     });
 
     try {
@@ -672,9 +673,10 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
           await clientRef.current.leave();
           agoraLog.success('Leave', 'Left channel successfully');
         }
-        
+
         clientRef.current.removeAllListeners();
         clientRef.current = null;
+        isClientReadyRef.current = false;
         agoraLog.info('Leave', 'Client destroyed');
       }
 
@@ -682,32 +684,37 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       hasJoinedRef.current = false;
       joinInProgressRef.current = false;
       eventListenersSetRef.current = false;
+      retryCountRef.current = 0;
 
-      // Reset state - use direct setState here as this is part of cleanup
-      safeSetState({
-        localVideoTrack: null,
-        localAudioTrack: null,
-        remoteUsers: [],
-        isJoined: false,
-        isMuted: false,
-        isVideoOff: false,
-        isConnecting: false,
-        error: null,
-      });
-      
+      // IMPORTANT: don't set state during unmount/cleanup (can trigger React "Should have a queue")
+      if (!options?.skipStateReset && isMountedRef.current) {
+        safeSetState({
+          localVideoTrack: null,
+          localAudioTrack: null,
+          remoteUsers: [],
+          isJoined: false,
+          isMuted: false,
+          isVideoOff: false,
+          isConnecting: false,
+          error: null,
+        });
+      }
+
       agoraLog.success('Leave', '=== Leave process completed ===');
     } catch (error: any) {
       agoraLog.error('Leave', 'Failed to leave channel', { error: error?.message });
       hasJoinedRef.current = false;
       joinInProgressRef.current = false;
+      isClientReadyRef.current = false;
       clientRef.current = null;
     }
-  }, []);
+  }, [safeSetState]);
 
   // Retry connection
   const retryConnection = useCallback(async () => {
     hasJoinedRef.current = false;
     joinInProgressRef.current = false;
+    retryCountRef.current = 0;
     await joinChannel();
   }, [joinChannel]);
 
@@ -751,7 +758,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
     if (!enabled || !channelName || hasJoinedRef.current || joinInProgressRef.current) {
       return;
     }
-    
+
     // Small delay to ensure client initialization effect has completed
     const timer = setTimeout(() => {
       if (enabled && channelName && !hasJoinedRef.current && !joinInProgressRef.current && isMountedRef.current) {
@@ -759,16 +766,18 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         joinChannel();
       }
     }, 150);
-    
+
     return () => clearTimeout(timer);
   }, [enabled, channelName, joinChannel]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      leaveChannel();
+      // Mark as unmounted early to prevent any state updates during cleanup
+      isMountedRef.current = false;
+      void leaveChannel({ skipStateReset: true });
     };
-  }, []);
+  }, [leaveChannel]);
 
   // Play local video
   const setLocalVideoContainer = useCallback((container: HTMLDivElement | null) => {
