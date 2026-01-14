@@ -1,0 +1,109 @@
+/**
+ * FunChat Widget Styles
+ * Optional external stylesheet for additional customization
+ */
+
+/* Widget container animations */
+@keyframes fc-slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fc-slide-down {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+}
+
+@keyframes fc-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes fc-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Enhanced button styles */
+.fc-widget-button {
+  animation: fc-bounce 2s ease-in-out infinite;
+}
+
+.fc-widget-button:hover {
+  animation: none;
+}
+
+/* Container open animation */
+.fc-widget-container.fc-open {
+  animation: fc-slide-up 0.3s ease forwards;
+}
+
+/* Badge animation */
+.fc-widget-badge.fc-has-unread {
+  animation: fc-pulse 1.5s ease-in-out infinite;
+}
+
+/* Mobile optimizations */
+@media (max-width: 480px) {
+  .fc-widget-button {
+    width: 52px;
+    height: 52px;
+  }
+  
+  .fc-widget-button svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .fc-widget-container {
+    border: 2px solid currentColor;
+  }
+  
+  .fc-widget-button {
+    border: 2px solid #fff;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .fc-widget-button,
+  .fc-widget-container,
+  .fc-widget-badge {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Dark mode auto-detection for button shadow */
+@media (prefers-color-scheme: dark) {
+  .fc-widget-button {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+  
+  .fc-widget-container {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+}
