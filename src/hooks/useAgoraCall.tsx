@@ -67,6 +67,7 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
   const joinInProgressRef = useRef(false);
   const hasJoinedRef = useRef(false);
   const eventListenersSetRef = useRef(false);
+  const lastUserInfoUpdateRef = useRef<Map<string, number>>(new Map());
   
   const [state, setState] = useState<AgoraCallState>({
     localVideoTrack: null,
@@ -138,8 +139,21 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
         await clientRef.current!.subscribe(user, mediaType);
         agoraLog.success('Events', 'Subscribed to user', { uid: user.uid, mediaType, time: `${Date.now() - subscribeStart}ms` });
         
-        // Force state update after successful subscription
+        // Only update state if there's an actual change to prevent infinite loops
         setState(prev => {
+          const existingUser = prev.remoteUsers.find(u => u.uid === user.uid);
+          
+          // Check if we actually have new track info
+          if (existingUser) {
+            const hasNewVideo = mediaType === 'video' && !existingUser.videoTrack && user.videoTrack;
+            const hasNewAudio = mediaType === 'audio' && !existingUser.audioTrack && user.audioTrack;
+            
+            if (!hasNewVideo && !hasNewAudio) {
+              agoraLog.debug('Events', 'No actual track change, skipping state update', { uid: user.uid });
+              return prev; // No state change - prevents re-render
+            }
+          }
+          
           const existingIndex = prev.remoteUsers.findIndex(u => u.uid === user.uid);
           let newRemoteUsers: IAgoraRTCRemoteUser[];
           
@@ -211,6 +225,21 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
 
     clientRef.current.on('token-privilege-did-expire', () => {
       agoraLog.error('Token', 'Token has expired - call will disconnect');
+    });
+
+    // Throttle user-info-updated events to prevent spam
+    clientRef.current.on('user-info-updated', (uid, msg) => {
+      const now = Date.now();
+      const key = `${uid}-${msg}`;
+      const lastUpdate = lastUserInfoUpdateRef.current.get(key) || 0;
+      
+      // Throttle: only log if 1000ms has passed since last update
+      if (now - lastUpdate < 1000) {
+        return;
+      }
+      
+      lastUserInfoUpdateRef.current.set(key, now);
+      agoraLog.debug('Events', 'User info updated', { uid, msg });
     });
 
     agoraLog.success('Events', 'All event listeners configured');
@@ -372,10 +401,35 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       
       const joinApiStart = Date.now();
       await clientRef.current.join(appId, channelName, token, tokenUid);
-      agoraLog.success('Join', 'Joined channel successfully', { 
+      
+      // Wait for connection to stabilize before publishing
+      await new Promise(r => setTimeout(r, 100));
+      
+      // Verify connection state before proceeding
+      if (clientRef.current.connectionState !== 'CONNECTED') {
+        agoraLog.warn('Join', 'Waiting for connection to stabilize...', { state: clientRef.current.connectionState });
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('Connection timeout after join')), 5000);
+          const checkConnection = () => {
+            if (clientRef.current?.connectionState === 'CONNECTED') {
+              clearTimeout(timeout);
+              resolve();
+            } else if (!clientRef.current) {
+              clearTimeout(timeout);
+              reject(new Error('Client destroyed during connection'));
+            } else {
+              setTimeout(checkConnection, 100);
+            }
+          };
+          checkConnection();
+        });
+      }
+      
+      agoraLog.success('Join', 'Joined channel and connection confirmed', { 
         uid: tokenUid, 
         joinApiTime: `${Date.now() - joinApiStart}ms`,
-        totalTime: `${Date.now() - joinStartTime}ms`
+        totalTime: `${Date.now() - joinStartTime}ms`,
+        connectionState: clientRef.current.connectionState
       });
       hasJoinedRef.current = true;
 
@@ -450,6 +504,14 @@ export const useAgoraCall = ({ channelName, uid, enabled, isVideoCall }: UseAgor
       }
 
       if (tracks.length > 0) {
+        // Final guard: ensure we're connected before publishing
+        if (!clientRef.current || clientRef.current.connectionState !== 'CONNECTED') {
+          agoraLog.error('Tracks', 'Cannot publish - client not connected', { 
+            state: clientRef.current?.connectionState 
+          });
+          throw new Error('Cannot publish tracks: client not connected');
+        }
+        
         const publishStart = Date.now();
         await clientRef.current.publish(tracks);
         agoraLog.success('Tracks', 'Published local tracks', { count: tracks.length, time: `${Date.now() - publishStart}ms` });
