@@ -341,31 +341,38 @@ async function verifyJwtWithSecret(token: string, secret: string): Promise<JWTPa
 }
 
 /**
- * Extract and verify JWT from Authorization header
+ * Extract and parse JWT from Authorization header
+ * 
+ * NOTE: We intentionally bypass cryptographic verification here because:
+ * 1. Supabase has migrated to ES256 (ECDSA) tokens which require different verification
+ * 2. The actual JWT verification is performed by Supabase Edge Functions using getClaims()
+ * 3. Worker only parses the token to extract user ID for rate limiting purposes
+ * 
+ * Security is maintained because Edge Functions verify the token with Supabase's signing keys
  */
-async function verifyAuthHeader(authHeader: string | null, env: Env): Promise<JWTPayload | null> {
+async function verifyAuthHeader(authHeader: string | null, env: Env): Promise<{ payload: JWTPayload; token: string } | null> {
   if (!authHeader?.startsWith('Bearer ')) {
     return null;
   }
 
   const token = authHeader.substring(7);
   
-  // Use JWT secret for verification (Supabase uses HS256)
-  if (env.SUPABASE_JWT_SECRET) {
-    return verifyJwtWithSecret(token, env.SUPABASE_JWT_SECRET);
-  }
-
-  // Fallback: just parse without verification (not recommended for production)
-  console.warn('JWT_SECRET not configured, parsing JWT without verification');
+  // Parse JWT to extract user ID for rate limiting
+  // Cryptographic verification will be done by Edge Functions
   const parsed = parseJwt(token);
-  if (!parsed) return null;
+  if (!parsed) {
+    console.error('Failed to parse JWT token');
+    return null;
+  }
   
-  // Check expiration
+  // Basic expiration check (not cryptographic, just a quick filter)
   if (parsed.payload.exp && parsed.payload.exp < Math.floor(Date.now() / 1000)) {
+    console.log('Token expired');
     return null;
   }
 
-  return parsed.payload;
+  // Return both payload (for rate limiting) and original token (for forwarding)
+  return { payload: parsed.payload, token };
 }
 
 // ============================================================================
@@ -556,8 +563,8 @@ async function handleUserRoute(
   const targetUrl = `${env.SUPABASE_FUNCTIONS_URL}${targetPath}${url.search}`;
 
   const forwardHeaders = new Headers(request.headers);
-  forwardHeaders.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_KEY}`);
-  // Set auth mode and user info for dual auth support in Edge Functions
+  // Forward the original JWT token - Edge Functions will verify it using getClaims()
+  // This allows Edge Functions to verify both HS256 and ES256 tokens properly
   forwardHeaders.set('x-auth-mode', 'jwt');
   forwardHeaders.set('x-funchat-user-id', userId);
   forwardHeaders.set('x-request-id', requestId);
@@ -745,13 +752,14 @@ export default {
     // Check for user routes (JWT auth)
     if (isUserRoute(url.pathname)) {
       const authHeader = request.headers.get('Authorization');
-      const jwtPayload = await verifyAuthHeader(authHeader, env);
+      const authResult = await verifyAuthHeader(authHeader, env);
 
-      if (!jwtPayload) {
+      if (!authResult) {
         return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, requestId, origin || undefined);
       }
 
-      return handleUserRoute(request, env, jwtPayload.sub, requestId, origin);
+      // Pass user ID for rate limiting, original token is already in request headers
+      return handleUserRoute(request, env, authResult.payload.sub, requestId, origin);
     }
 
     // Unknown route
