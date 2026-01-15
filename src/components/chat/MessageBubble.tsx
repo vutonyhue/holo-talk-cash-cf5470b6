@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2, Mic, Video, Phone, PhoneOff, PhoneMissed } from 'lucide-react';
+import { Coins, CheckCheck, FileIcon, Download, Reply, Copy, Forward, Trash2, Mic, Video, Phone, PhoneOff, PhoneMissed, Loader2, AlertCircle } from 'lucide-react';
 import VoiceMessagePlayer from './VoiceMessagePlayer';
 import {
   ContextMenu,
@@ -33,6 +33,7 @@ interface MessageBubbleProps {
   onDelete?: (message: Message) => void;
   onReaction?: (messageId: string, emoji: string) => void;
   reactionGroups?: ReactionGroup[];
+  onRetry?: (messageId: string) => void;
 }
 
 export default function MessageBubble({ 
@@ -46,7 +47,8 @@ export default function MessageBubble({
   onCopy,
   onDelete,
   onReaction,
-  reactionGroups = []
+  reactionGroups = [],
+  onRetry
 }: MessageBubbleProps) {
   const { user } = useAuth();
   const isMine = message.sender_id === user?.id;
@@ -300,7 +302,12 @@ export default function MessageBubble({
   const emojis = ['❤️', '😂', '👍', '😮', '😢', '😡'];
 
   return (
-    <div className={`group flex gap-2 mb-3 animate-bubble-in ${isMine ? 'flex-row-reverse' : ''}`}>
+    <div className={cn(
+      "group flex gap-2 mb-3 animate-bubble-in",
+      isMine ? 'flex-row-reverse' : '',
+      message._sending && "opacity-70",
+      message._failed && "opacity-90"
+    )}>
       {!isMine && (
         <Avatar className="w-8 h-8 mt-1">
           <AvatarImage src={message.sender?.avatar_url || undefined} />
@@ -401,24 +408,53 @@ export default function MessageBubble({
             {format(new Date(message.created_at), 'HH:mm', { locale: vi })}
           </span>
           {isMine && showReadStatus && (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <CheckCheck 
-                    className={`w-3.5 h-3.5 transition-all duration-500 ease-out cursor-pointer ${
-                      isRead 
-                        ? 'text-primary scale-110 animate-[pulse_0.5s_ease-out]' 
-                        : 'text-muted-foreground/50 scale-100'
-                    }`} 
-                  />
-                </TooltipTrigger>
-                {isRead && readTime && (
-                  <TooltipContent side="top" className="text-xs">
-                    <p>Đã xem lúc {format(new Date(readTime), 'HH:mm, dd/MM/yyyy', { locale: vi })}</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
+            <>
+              {/* Sending indicator */}
+              {message._sending && (
+                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+              )}
+              
+              {/* Failed indicator with retry */}
+              {message._failed && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button 
+                        onClick={() => onRetry?.(message.id)}
+                        className="flex items-center gap-1 text-destructive hover:text-destructive/80"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      <p>Gửi thất bại. Nhấn để thử lại</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              
+              {/* Read status */}
+              {!message._sending && !message._failed && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CheckCheck 
+                        className={`w-3.5 h-3.5 transition-all duration-500 ease-out cursor-pointer ${
+                          isRead 
+                            ? 'text-primary scale-110 animate-[pulse_0.5s_ease-out]' 
+                            : 'text-muted-foreground/50 scale-100'
+                        }`} 
+                      />
+                    </TooltipTrigger>
+                    {isRead && readTime && (
+                      <TooltipContent side="top" className="text-xs">
+                        <p>Đã xem lúc {format(new Date(readTime), 'HH:mm, dd/MM/yyyy', { locale: vi })}</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </>
           )}
         </div>
       </div>

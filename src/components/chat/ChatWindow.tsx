@@ -68,7 +68,7 @@ interface ChatWindowProps {
 export default function ChatWindow({ conversation, conversations, onVideoCall, onVoiceCall, onBack, onDeleteConversation }: ChatWindowProps) {
   const navigate = useNavigate();
   const { profile, user } = useAuth();
-  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage, sendVoiceMessage, deleteMessage } = useMessages(conversation.id);
+  const { messages, loading, sendMessage, sendCryptoMessage, sendImageMessage, sendVoiceMessage, deleteMessage, retryMessage } = useMessages(conversation.id);
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
   const { isRecording, duration, startRecording, stopRecording, cancelRecording } = useVoiceRecorder();
   
@@ -264,6 +264,10 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
 
   const handleReaction = (messageId: string, emoji: string) => {
     toggleReaction(messageId, emoji);
+  };
+
+  const handleRetry = (messageId: string) => {
+    retryMessage(messageId);
   };
 
   const getReplyPreview = (msg: Message) => {
@@ -534,6 +538,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
                   onDelete={handleDelete}
                   onReaction={handleReaction}
                   reactionGroups={getReactionGroups(message.id)}
+                  onRetry={handleRetry}
                 />
               );
             })}
