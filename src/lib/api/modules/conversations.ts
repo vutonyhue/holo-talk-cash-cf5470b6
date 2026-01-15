@@ -79,5 +79,12 @@ export function createConversationsApi(client: ApiClient) {
     async findDirectConversation(otherUserId: string): Promise<ApiResponse<ConversationResponse | null>> {
       return client.get<ConversationResponse | null>(`/v1/conversations/direct/${otherUserId}`);
     },
+
+    /**
+     * Send typing indicator
+     */
+    async sendTyping(conversationId: string, userName: string): Promise<ApiResponse<{ ok: boolean }>> {
+      return client.post<{ ok: boolean }>(`/v1/conversations/${conversationId}/typing`, { user_name: userName });
+    },
   };
 }

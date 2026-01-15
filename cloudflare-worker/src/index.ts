@@ -8,6 +8,8 @@
  * - Scope-based access control
  * - Origin validation
  * - Request forwarding to Supabase Edge Functions
+ * - SSE streaming for realtime messages
+ * - Typing indicator broadcasts
  */
 
 // ============================================================================
@@ -18,6 +20,7 @@ interface Env {
   API_KEY_CACHE: KVNamespace;
   RATE_LIMIT: KVNamespace;
   JWKS_CACHE: KVNamespace;
+  TYPING_STATE: KVNamespace;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
   SUPABASE_FUNCTIONS_URL: string;
@@ -64,6 +67,12 @@ interface JWKS {
   keys: JWK[];
 }
 
+interface TypingUser {
+  user_id: string;
+  user_name: string;
+  timestamp: number;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -72,6 +81,9 @@ const CACHE_TTL = 300; // 5 minutes
 const JWKS_CACHE_TTL = 3600; // 1 hour
 const RATE_LIMIT_WINDOW = 3600; // 1 hour in seconds
 const USER_RATE_LIMIT = 1000; // requests per hour for authenticated users
+const SSE_POLL_INTERVAL = 1000; // 1 second
+const SSE_MAX_DURATION = 300000; // 5 minutes max connection
+const TYPING_TTL = 4; // 4 seconds
 
 // Endpoint to required scope mapping (for API key auth)
 const ENDPOINT_SCOPES: Record<string, Record<string, string>> = {
@@ -118,6 +130,9 @@ const USER_ROUTES = [
   '/v1/read-receipts',
   '/v1/media',
   '/v1/rewards',
+  '/v1/ai',
+  '/v1/calls',
+  '/v1/api-keys',
 ];
 
 // Public routes (no auth needed)
@@ -509,6 +524,223 @@ async function checkRateLimit(
 }
 
 // ============================================================================
+// SSE Stream Handler
+// ============================================================================
+
+/**
+ * Handle SSE stream for realtime messages
+ */
+async function handleSSEStream(
+  request: Request,
+  env: Env,
+  userId: string,
+  conversationId: string,
+  requestId: string,
+  origin: string | null
+): Promise<Response> {
+  // Verify user is member of conversation
+  const memberCheck = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/conversation_members?conversation_id=eq.${conversationId}&user_id=eq.${userId}&select=id`,
+    {
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      }
+    }
+  );
+
+  const members = await memberCheck.json();
+  if (!Array.isArray(members) || members.length === 0) {
+    return errorResponse('FORBIDDEN', 'Not a member of this conversation', 403, requestId, origin || undefined);
+  }
+
+  // Create SSE stream
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  // Track connection state
+  let isActive = true;
+  let lastMessageId: string | null = null;
+  let lastMessageTime = Date.now();
+  const startTime = Date.now();
+
+  // Initial connection event
+  writer.write(encoder.encode(`event: connected\ndata: ${JSON.stringify({ conversationId, userId })}\n\n`));
+
+  // Polling function
+  const poll = async () => {
+    while (isActive && (Date.now() - startTime < SSE_MAX_DURATION)) {
+      try {
+        // Fetch new messages
+        let query = `${env.SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&order=created_at.asc&limit=50`;
+        if (lastMessageId) {
+          // Get messages newer than last seen
+          query += `&created_at=gt.${new Date(lastMessageTime - 1000).toISOString()}`;
+        }
+
+        const messagesRes = await fetch(query, {
+          headers: {
+            'apikey': env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          }
+        });
+
+        if (messagesRes.ok) {
+          const messages = await messagesRes.json();
+          if (Array.isArray(messages) && messages.length > 0) {
+            for (const msg of messages) {
+              // Skip if we've already sent this message
+              if (lastMessageId === msg.id) continue;
+              
+              // Fetch sender profile
+              let sender = null;
+              if (msg.sender_id) {
+                const profileRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${msg.sender_id}&select=id,username,display_name,avatar_url`,
+                  {
+                    headers: {
+                      'apikey': env.SUPABASE_SERVICE_KEY,
+                      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    }
+                  }
+                );
+                if (profileRes.ok) {
+                  const profiles = await profileRes.json();
+                  sender = profiles[0] || null;
+                }
+              }
+
+              const eventData = JSON.stringify({ ...msg, sender });
+              await writer.write(encoder.encode(`event: message\ndata: ${eventData}\n\n`));
+              lastMessageId = msg.id;
+              lastMessageTime = new Date(msg.created_at).getTime();
+            }
+          }
+        }
+
+        // Check for typing indicators
+        const typingKey = `typing:${conversationId}`;
+        const typingData = await env.TYPING_STATE?.get(typingKey, 'json') as TypingUser[] | null;
+        if (typingData && typingData.length > 0) {
+          const activeTyping = typingData.filter(t => 
+            t.user_id !== userId && 
+            Date.now() - t.timestamp < TYPING_TTL * 1000
+          );
+          if (activeTyping.length > 0) {
+            await writer.write(encoder.encode(`event: typing\ndata: ${JSON.stringify(activeTyping)}\n\n`));
+          }
+        }
+
+        // Send heartbeat
+        await writer.write(encoder.encode(`:heartbeat\n\n`));
+
+      } catch (e) {
+        console.error('SSE polling error:', e);
+      }
+
+      // Wait before next poll
+      await new Promise(r => setTimeout(r, SSE_POLL_INTERVAL));
+    }
+
+    // Close stream when done
+    try {
+      await writer.write(encoder.encode(`event: close\ndata: ${JSON.stringify({ reason: 'timeout' })}\n\n`));
+      await writer.close();
+    } catch {
+      // Ignore close errors
+    }
+  };
+
+  // Handle client disconnect
+  request.signal.addEventListener('abort', () => {
+    isActive = false;
+  });
+
+  // Start polling in background
+  poll().catch(console.error);
+
+  const headers: HeadersInit = {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Request-ID': requestId,
+  };
+
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  }
+
+  return new Response(readable, { headers });
+}
+
+// ============================================================================
+// Typing Indicator Handler
+// ============================================================================
+
+/**
+ * Handle typing indicator broadcast
+ */
+async function handleTypingBroadcast(
+  env: Env,
+  userId: string,
+  userName: string,
+  conversationId: string,
+  requestId: string,
+  origin: string | null
+): Promise<Response> {
+  // Verify user is member of conversation
+  const memberCheck = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/conversation_members?conversation_id=eq.${conversationId}&user_id=eq.${userId}&select=id`,
+    {
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      }
+    }
+  );
+
+  const members = await memberCheck.json();
+  if (!Array.isArray(members) || members.length === 0) {
+    return errorResponse('FORBIDDEN', 'Not a member', 403, requestId, origin || undefined);
+  }
+
+  // Store typing state in KV
+  const typingKey = `typing:${conversationId}`;
+  const now = Date.now();
+  
+  // Get existing typing users
+  let typingUsers: TypingUser[] = [];
+  try {
+    const existing = await env.TYPING_STATE?.get(typingKey, 'json') as TypingUser[] | null;
+    if (existing) {
+      // Filter out stale typing indicators and current user
+      typingUsers = existing.filter(t => 
+        t.user_id !== userId && 
+        now - t.timestamp < TYPING_TTL * 1000
+      );
+    }
+  } catch {
+    typingUsers = [];
+  }
+
+  // Add current user's typing indicator
+  typingUsers.push({
+    user_id: userId,
+    user_name: userName,
+    timestamp: now,
+  });
+
+  // Store with TTL
+  await env.TYPING_STATE?.put(typingKey, JSON.stringify(typingUsers), {
+    expirationTtl: TYPING_TTL,
+  });
+
+  return successResponse({ ok: true }, requestId, origin || undefined);
+}
+
+// ============================================================================
 // Route Handlers
 // ============================================================================
 
@@ -535,6 +767,24 @@ async function handleUserRoute(
     return response;
   }
 
+  // Handle SSE stream endpoint
+  const streamMatch = url.pathname.match(/^\/v1\/conversations\/([^/]+)\/stream$/);
+  if (streamMatch && request.method === 'GET') {
+    return handleSSEStream(request, env, userId, streamMatch[1], requestId, origin);
+  }
+
+  // Handle typing indicator endpoint
+  const typingMatch = url.pathname.match(/^\/v1\/conversations\/([^/]+)\/typing$/);
+  if (typingMatch && request.method === 'POST') {
+    try {
+      const body = await request.json() as { user_name?: string };
+      const userName = body.user_name || 'User';
+      return handleTypingBroadcast(env, userId, userName, typingMatch[1], requestId, origin);
+    } catch {
+      return errorResponse('BAD_REQUEST', 'Invalid request body', 400, requestId, origin || undefined);
+    }
+  }
+
   // Map v1 routes to Supabase Edge Functions
   let targetPath = url.pathname;
   
@@ -557,6 +807,12 @@ async function handleUserRoute(
     targetPath = targetPath.replace('/v1/media', '/api-chat/media');
   } else if (targetPath.startsWith('/v1/rewards')) {
     targetPath = targetPath.replace('/v1/rewards', '/api-rewards');
+  } else if (targetPath.startsWith('/v1/ai')) {
+    targetPath = targetPath.replace('/v1/ai', '/ai-chat');
+  } else if (targetPath.startsWith('/v1/calls')) {
+    targetPath = targetPath.replace('/v1/calls', '/api-calls');
+  } else if (targetPath.startsWith('/v1/api-keys')) {
+    targetPath = targetPath.replace('/v1/api-keys', '/api-keys');
   }
 
   // Forward request to Supabase Edge Functions
@@ -569,7 +825,7 @@ async function handleUserRoute(
   forwardHeaders.set('x-funchat-user-id', userId);
   forwardHeaders.set('x-request-id', requestId);
   // JWT users get full access to their own data
-  forwardHeaders.set('x-funchat-scopes', 'chat:read,chat:write,users:read,users:write,rewards:read,rewards:write');
+  forwardHeaders.set('x-funchat-scopes', 'chat:read,chat:write,users:read,users:write,rewards:read,rewards:write,calls:read,calls:write');
 
   const forwardRequest = new Request(targetUrl, {
     method: request.method,
@@ -709,8 +965,9 @@ export default {
       return successResponse(
         {
           status: 'healthy',
-          version: '2.0.0',
+          version: '2.1.0',
           timestamp: new Date().toISOString(),
+          features: ['sse', 'typing'],
         },
         requestId,
         origin || undefined
