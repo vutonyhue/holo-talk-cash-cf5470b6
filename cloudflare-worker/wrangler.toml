@@ -31,6 +31,10 @@ id = "3bc338be1bf9492182af77634f580e9b"
 binding = "JWKS_CACHE"
 id = "7d76aae6b6fb45618a950ce732512f03"
 
+[[kv_namespaces]]
+binding = "TYPING_STATE"
+id = "3bc338be1bf9492182af77634f580e9b"
+
 # ============================================================================
 # Environment Variables (non-sensitive)
 # ============================================================================
@@ -65,6 +69,10 @@ id = "__RATE_LIMIT_PROD_ID__"
 [[env.production.kv_namespaces]]
 binding = "JWKS_CACHE"
 id = "__JWKS_CACHE_PROD_ID__"
+
+[[env.production.kv_namespaces]]
+binding = "TYPING_STATE"
+id = "__TYPING_STATE_PROD_ID__"
 
 [env.production.vars]
 SUPABASE_FUNCTIONS_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1"

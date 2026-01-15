@@ -2,7 +2,7 @@
  * FunChat API Module
  * 
  * Centralized API client for all backend communication through Cloudflare Worker.
- * Supabase is only used for Auth and Realtime - all data operations go through the API.
+ * Supabase is only used for Auth - all data operations go through the API.
  */
 
 import { ApiClient } from './apiClient';
@@ -18,6 +18,8 @@ import { createReadReceiptsApi } from './modules/readReceipts';
 import { createMediaApi } from './modules/media';
 import { createRewardsApi } from './modules/rewards';
 import { createApiKeysApi } from './modules/apiKeys';
+import { createCallsApi } from './modules/calls';
+import { createAIApi } from './modules/ai';
 
 // Get base URL from environment or default to production
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.india-25d.workers.dev';
@@ -33,7 +35,6 @@ const apiClient = new ApiClient({
     return session?.access_token ?? null;
   },
   onUnauthorized: () => {
-    // Trigger sign out when token is invalid
     console.warn('[API] Session expired, signing out...');
     supabase.auth.signOut();
   },
@@ -54,6 +55,8 @@ export const api = {
   media: createMediaApi(apiClient),
   rewards: createRewardsApi(apiClient),
   apiKeys: createApiKeysApi(apiClient),
+  calls: createCallsApi(apiClient),
+  ai: createAIApi(apiClient),
 };
 
 // Export types
