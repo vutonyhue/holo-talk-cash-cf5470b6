@@ -13,14 +13,23 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
   const { user } = useAuth();
   const [readReceipts, setReadReceipts] = useState<Record<string, ReadReceipt[]>>({});
   const markedAsReadRef = useRef<Set<string>>(new Set());
+  const pendingFetchRef = useRef<boolean>(false);
 
-  // Fetch existing read receipts via API
+  // Fetch existing read receipts via API (debounced)
   useEffect(() => {
     if (!conversationId || messageIds.length === 0) return;
+    
+    // Skip temp message IDs
+    const stableIds = messageIds.filter(id => !id.startsWith('temp_'));
+    if (stableIds.length === 0) return;
 
-    const fetchReadReceipts = async () => {
+    // Debounce fetch
+    const timer = setTimeout(async () => {
+      if (pendingFetchRef.current) return;
+      pendingFetchRef.current = true;
+      
       try {
-        const response = await api.readReceipts.getForMessages(messageIds);
+        const response = await api.readReceipts.getForMessages(stableIds);
 
         if (response.ok && response.data) {
           const receiptsMap: Record<string, ReadReceipt[]> = {};
@@ -34,10 +43,12 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
         }
       } catch (error) {
         console.error('[useReadReceipts] Fetch error:', error);
+      } finally {
+        pendingFetchRef.current = false;
       }
-    };
+    }, 200);
 
-    fetchReadReceipts();
+    return () => clearTimeout(timer);
   }, [conversationId, messageIds.join(',')]);
 
   // Subscribe to realtime read receipts - KEEP SUPABASE REALTIME
@@ -75,32 +86,30 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     };
   }, [conversationId]);
 
-  // Mark messages as read via API
+  // Mark messages as read via API (with debounce and deduplication)
   const markAsRead = useCallback(async (messageIdsToMark: string[]) => {
     if (!user) return;
 
-    // Filter out already marked messages
+    // Filter out already marked messages AND temp messages
     const newMessageIds = messageIdsToMark.filter(
-      (id) => !markedAsReadRef.current.has(id)
+      (id) => !id.startsWith('temp_') && !markedAsReadRef.current.has(id)
     );
 
     if (newMessageIds.length === 0) return;
 
-    // Mark as pending
+    // Mark as pending immediately to prevent duplicates
     newMessageIds.forEach((id) => markedAsReadRef.current.add(id));
 
     try {
       const response = await api.readReceipts.markAsRead(newMessageIds);
 
       if (!response.ok) {
-        // Remove from pending if failed
-        newMessageIds.forEach((id) => markedAsReadRef.current.delete(id));
-        console.error('[useReadReceipts] Error marking as read:', response.error);
+        // Only log, don't remove from pending (server might have accepted some)
+        console.warn('[useReadReceipts] Partial or failed mark as read:', response.error);
       }
     } catch (err) {
-      // Remove from pending if failed
-      newMessageIds.forEach((id) => markedAsReadRef.current.delete(id));
-      console.error('[useReadReceipts] Error marking as read:', err);
+      // Only log, keep marked as pending to avoid retries causing 409
+      console.warn('[useReadReceipts] Error marking as read:', err);
     }
   }, [user]);
 

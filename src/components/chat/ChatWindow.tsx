@@ -72,19 +72,35 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const { typingUsers, broadcastTyping } = useTypingIndicator(conversation.id);
   const { isRecording, duration, startRecording, stopRecording, cancelRecording } = useVoiceRecorder();
   
-  // Get message IDs for read receipts
-  const messageIds = useMemo(() => messages.map(m => m.id), [messages]);
-  const { markAsRead, isReadByOthers, getReadTime } = useReadReceipts(conversation.id, messageIds);
+  // Sort messages by created_at ASC for correct display order
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => 
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+  }, [messages]);
+
+  // Get message IDs for read receipts - only stable (non-temp) messages from others
+  const stableMessageIds = useMemo(() => 
+    sortedMessages
+      .filter(m => !m.id.startsWith('temp_') && m.sender_id !== user?.id)
+      .map(m => m.id), 
+    [sortedMessages, user?.id]
+  );
+  const { markAsRead, isReadByOthers, getReadTime } = useReadReceipts(conversation.id, stableMessageIds);
   
-  // Reactions
+  // Reactions - only for stable messages
+  const allStableMessageIds = useMemo(() => 
+    sortedMessages.filter(m => !m.id.startsWith('temp_')).map(m => m.id), 
+    [sortedMessages]
+  );
   const { fetchReactions, toggleReaction, getReactionGroups } = useReactions(conversation.id);
   
   // Fetch reactions when messages change
   useEffect(() => {
-    if (messageIds.length > 0) {
-      fetchReactions(messageIds);
+    if (allStableMessageIds.length > 0) {
+      fetchReactions(allStableMessageIds);
     }
-  }, [messageIds, fetchReactions]);
+  }, [allStableMessageIds, fetchReactions]);
   const [newMessage, setNewMessage] = useState('');
   const [showCryptoDialog, setShowCryptoDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -174,19 +190,17 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     }
   }, [messages.length, initialScrollDone]);
 
-  // Mark messages as read when they are displayed
+  // Mark messages as read when they are displayed (debounced)
   useEffect(() => {
-    if (!user || messages.length === 0) return;
+    if (!user || stableMessageIds.length === 0) return;
     
-    // Mark all messages from others as read
-    const otherMessages = messages
-      .filter(m => m.sender_id !== user.id)
-      .map(m => m.id);
+    // Debounce to avoid spam
+    const timer = setTimeout(() => {
+      markAsRead(stableMessageIds);
+    }, 300);
     
-    if (otherMessages.length > 0) {
-      markAsRead(otherMessages);
-    }
-  }, [messages, user, markAsRead]);
+    return () => clearTimeout(timer);
+  }, [stableMessageIds, user, markAsRead]);
 
   const handleSend = async () => {
     if (!newMessage.trim()) return;
@@ -509,7 +523,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
           <div className="flex items-center justify-center h-full">
             <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : sortedMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <div className="w-20 h-20 rounded-2xl gradient-primary/20 flex items-center justify-center mb-4">
               <Send className="w-10 h-10 text-primary" />
@@ -519,10 +533,10 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
           </div>
         ) : (
           <div className="space-y-1">
-            {messages.map((message, index) => {
+            {sortedMessages.map((message, index) => {
               const isLastFromSender = 
-                index === messages.length - 1 || 
-                messages[index + 1]?.sender_id !== message.sender_id;
+                index === sortedMessages.length - 1 || 
+                sortedMessages[index + 1]?.sender_id !== message.sender_id;
               
               return (
                 <MessageBubble 
