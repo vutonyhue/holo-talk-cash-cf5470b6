@@ -20,7 +20,7 @@ import { createRewardsApi } from './modules/rewards';
 import { createApiKeysApi } from './modules/apiKeys';
 
 // Get base URL from environment or default to production
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.workers.dev';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.india-25d.workers.dev';
 
 // Debug mode in development
 const DEBUG = import.meta.env.DEV;
