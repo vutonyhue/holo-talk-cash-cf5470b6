@@ -45,6 +45,8 @@ export interface Message {
   sender?: Profile;
   reply_to_id?: string | null;
   reply_to?: Message;
+  _sending?: boolean; // Flag đánh dấu tin nhắn đang gửi (optimistic update)
+  _failed?: boolean; // Flag đánh dấu tin nhắn gửi thất bại
 }
 
 export interface CryptoTransaction {
