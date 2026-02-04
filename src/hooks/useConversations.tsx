@@ -35,7 +35,11 @@ export function useConversations() {
       }
 
       // Transform API response to Conversation type
-      const conversationsWithDetails = response.data.conversations.map(conv => ({
+      // Handle both wrapped format { conversations: [...] } and raw array [...]
+      const rawConversations = response.data.conversations || response.data;
+      const conversationsArray = Array.isArray(rawConversations) ? rawConversations : [];
+      
+      const conversationsWithDetails = conversationsArray.map(conv => ({
         ...conv,
         members: conv.members?.map(m => ({
           ...m,

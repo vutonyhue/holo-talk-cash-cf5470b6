@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useCallSignaling } from '@/hooks/useCallSignaling';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import AppSidebar from '@/components/layout/AppSidebar';
 import BottomNav from '@/components/layout/BottomNav';
 import ComingSoon from '@/components/layout/ComingSoon';
@@ -180,48 +180,33 @@ export default function Chat() {
     }
   };
 
-  // Handle confirm call from right panel
+  // Handle confirm call from right panel - Now using API instead of direct Supabase
   const handleConfirmCall = async () => {
     if (!foundProfile) return;
     
     setIsConnecting(true);
     
     try {
-      const { data: existingConv } = await supabase
-        .from('conversations')
-        .select(`
-          id,
-          conversation_members!inner(user_id)
-        `)
-        .eq('is_group', false)
-        .eq('conversation_members.user_id', foundProfile.id)
-        .limit(1)
-        .single();
-
+      // Use API to find or create conversation
+      const findResponse = await api.conversations.findDirectConversation(foundProfile.id);
+      
       let conversationId: string;
 
-      if (existingConv) {
-        conversationId = existingConv.id;
+      if (findResponse.ok && findResponse.data) {
+        // Existing conversation found
+        conversationId = findResponse.data.id;
       } else {
-        const { data: newConv, error: convError } = await supabase
-          .from('conversations')
-          .insert({
-            is_group: false,
-            created_by: profile?.id
-          })
-          .select()
-          .single();
+        // Create new conversation via API
+        const createResponse = await api.conversations.create({
+          member_ids: [foundProfile.id],
+          is_group: false,
+        });
 
-        if (convError) throw convError;
+        if (!createResponse.ok || !createResponse.data) {
+          throw new Error(createResponse.error?.message || 'Failed to create conversation');
+        }
 
-        await supabase
-          .from('conversation_members')
-          .insert([
-            { conversation_id: newConv.id, user_id: profile?.id },
-            { conversation_id: newConv.id, user_id: foundProfile.id }
-          ]);
-
-        conversationId = newConv.id;
+        conversationId = createResponse.data.id;
       }
 
       await startCall(conversationId, pendingCallType);
