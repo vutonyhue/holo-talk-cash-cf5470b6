@@ -1,9 +1,16 @@
 
 # Kế hoạch Migrate useMessages sang SSE
 
-## Tổng quan
+## ✅ HOÀN THÀNH
 
 **Mục tiêu**: Thay thế Supabase Realtime (`supabase.channel()` với `postgres_changes`) bằng Server-Sent Events (SSE) qua Cloudflare Worker để thống nhất kiến trúc realtime.
+
+### Đã thực hiện:
+1. ✅ Xóa toàn bộ `supabase.channel()` subscription
+2. ✅ Tích hợp `useMessageStream` hook
+3. ✅ Tạo `handleStreamMessage` callback với logic dedup và optimistic update
+4. ✅ Export `isConnected`, `isReconnecting`, `reconnect` từ hook
+5. ✅ Xóa import `supabase` không cần thiết
 
 ## Phân tích hiện trạng
 
