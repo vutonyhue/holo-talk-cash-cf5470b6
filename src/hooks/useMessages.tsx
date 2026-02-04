@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './useAuth';
+import { useMessageStream } from './useMessageStream';
 import { Message, Profile } from '@/types';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
@@ -88,106 +88,73 @@ export function useMessages(conversationId: string | null) {
     fetchMessages();
   }, [fetchMessages]);
 
-  // Subscribe to realtime messages (INSERT and UPDATE)
-  useEffect(() => {
-    if (!conversationId || !user) return;
+  // Handle incoming SSE messages
+  const handleStreamMessage = useCallback((streamMessage: Message & { sender?: Profile }) => {
+    setMessages(prev => {
+      // Case 1: Skip if message already exists (by ID)
+      if (prev.some(m => m.id === streamMessage.id)) {
+        return prev;
+      }
 
-    const channel = supabase
-      .channel(`messages:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
-          const newMessage = payload.new as Message;
-          
-          // Skip if this is our own message (already added via optimistic update)
-          if (newMessage.sender_id === user.id) {
-            setMessages(prev => {
-              // Check if we already have this exact message from server
-              const existingRealMessage = prev.find(m => m.id === newMessage.id);
-              if (existingRealMessage) return prev;
-              
-              // Check for matching optimistic message (temp ID, same content)
-              const optimisticMatch = prev.find(m => 
-                m._sending && 
-                m.sender_id === newMessage.sender_id && 
-                m.content === newMessage.content
-              );
-              
-              if (optimisticMatch) {
-                // Replace optimistic message with real one
-                return prev.map(m => 
-                  m.id === optimisticMatch.id 
-                    ? { ...newMessage, sender: userProfile || m.sender, _sending: false }
-                    : m
-                );
-              }
-              
-              // Add new message (edge case - shouldn't normally happen)
-              return [...prev, { ...newMessage, sender: userProfile || undefined }];
-            });
-            return;
-          }
+      // Case 2: Own message - check for optimistic update to replace
+      if (streamMessage.sender_id === user?.id) {
+        const optimisticMatch = prev.find(m =>
+          m._sending &&
+          m.sender_id === streamMessage.sender_id &&
+          m.content === streamMessage.content
+        );
 
-          // For messages from others, fetch their profile and add
-          let senderProfile: Profile | undefined;
-          
-          if (newMessage.sender_id) {
-            try {
-              const profileRes = await api.users.getProfile(newMessage.sender_id);
-              if (profileRes.ok && profileRes.data) {
-                senderProfile = profileRes.data as Profile;
-              }
-            } catch (e) {
-              // Fallback: fetch from Supabase directly
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', newMessage.sender_id)
-                .maybeSingle();
-              
-              senderProfile = profile as Profile;
-            }
-          }
-
-          setMessages(prev => {
-            // Check for duplicates
-            if (prev.some(m => m.id === newMessage.id)) return prev;
-            return [...prev, { ...newMessage, sender: senderProfile }];
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          const updatedMessage = payload.new as Message;
-          
-          setMessages(prev => 
-            prev.map(m => 
-              m.id === updatedMessage.id 
-                ? { ...m, ...updatedMessage }
-                : m
-            )
+        if (optimisticMatch) {
+          // Replace optimistic message with real one from server
+          return prev.map(m =>
+            m.id === optimisticMatch.id
+              ? { ...streamMessage, _sending: false }
+              : m
           );
         }
-      )
-      .subscribe();
+        // Already handled by API response, skip
+        return prev;
+      }
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId, user, userProfile]);
+      // Case 3: Message from others - add to list
+      return [...prev, streamMessage];
+    });
+  }, [user?.id]);
+
+  // Handle message updates (edits, deletions)
+  const handleStreamUpdate = useCallback((updatedMessage: Message) => {
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === updatedMessage.id
+          ? { ...m, ...updatedMessage }
+          : m
+      )
+    );
+  }, []);
+
+  // SSE stream options - memoized to prevent reconnection loops
+  const streamOptions = useMemo(() => ({
+    onMessage: handleStreamMessage,
+    onConnect: () => {
+      console.log('[useMessages] SSE connected for conversation:', conversationId);
+    },
+    onDisconnect: () => {
+      console.log('[useMessages] SSE disconnected');
+    },
+    onError: (error: Error) => {
+      console.error('[useMessages] SSE error:', error);
+      if (error.message === 'Max reconnection attempts reached') {
+        toast.error('Mất kết nối realtime, đang tải lại...');
+        fetchMessages(); // Reload messages on connection failure
+      }
+    },
+  }), [handleStreamMessage, conversationId, fetchMessages]);
+
+  // Subscribe to SSE message stream
+  const { isConnected, isReconnecting, reconnect } = useMessageStream(
+    conversationId,
+    streamOptions
+  );
 
   // Send message with OPTIMISTIC UPDATE
   const sendMessage = async (content: string, messageType = 'text', metadata = {}, replyToId?: string) => {
@@ -596,5 +563,9 @@ export function useMessages(conversationId: string | null) {
     deleteMessage,
     retryMessage,
     fetchMessages,
+    // SSE connection status
+    isConnected,
+    isReconnecting,
+    reconnect,
   };
 }
