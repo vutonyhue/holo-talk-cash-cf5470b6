@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from '@/hooks/use-toast';
+import { api } from '@/lib/api';
 
 export interface CallSession {
   id: string;
@@ -41,9 +42,9 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
   // Track which calls have already had messages sent to avoid duplicates
   const sentMessagesRef = useRef<Set<string>>(new Set());
 
-  // Hàm gửi tin nhắn thông báo cuộc gọi
+  // Hàm gửi tin nhắn thông báo cuộc gọi qua API
   const sendCallMessage = async (
-    convId: string,
+    conversationId: string,
     callType: 'video' | 'voice',
     status: 'rejected' | 'ended' | 'missed',
     duration?: number,
@@ -58,28 +59,20 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
       sentMessagesRef.current.add(messageKey);
     }
 
-    const statusMessages = {
-      rejected: callType === 'video' ? 'Cuộc gọi video bị từ chối' : 'Cuộc gọi thoại bị từ chối',
-      ended: callType === 'video' 
-        ? `Cuộc gọi video đã kết thúc${duration ? ` (${formatDuration(duration)})` : ''}`
-        : `Cuộc gọi thoại đã kết thúc${duration ? ` (${formatDuration(duration)})` : ''}`,
-      missed: callType === 'video' ? 'Cuộc gọi video nhỡ' : 'Cuộc gọi thoại nhỡ',
-    };
-
-    await supabase.from('messages').insert({
-      conversation_id: convId,
-      sender_id: user?.id,
-      content: statusMessages[status],
-      message_type: 'call',
-      metadata: {
+    try {
+      await api.calls.sendCallMessage({
+        conversation_id: conversationId,
         call_type: callType,
         call_status: status,
-        duration: duration || null,
-      },
-    });
+        duration,
+      });
+    } catch (e) {
+      console.error('Failed to send call message:', e);
+    }
   };
 
   // Subscribe to call sessions for all user's conversations
+  // Note: Still using Supabase Realtime for call signaling as it needs to be real-time
   useEffect(() => {
     if (!user) return;
 
@@ -104,17 +97,25 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
             return;
           }
 
-          // Fetch caller profile
-          const { data: callerProfile } = await supabase
-            .from('profiles')
-            .select('display_name, avatar_url, username')
-            .eq('id', newCall.caller_id)
-            .single();
-
-          setIncomingCall({
-            ...newCall,
-            caller_profile: callerProfile || undefined,
-          });
+          // Fetch caller profile via API
+          try {
+            const response = await api.calls.get(newCall.id);
+            if (response.ok && response.data) {
+              const callData = response.data as any;
+              setIncomingCall({
+                ...newCall,
+                caller_profile: callData.caller ? {
+                  display_name: callData.caller.display_name,
+                  avatar_url: callData.caller.avatar_url,
+                  username: callData.caller.username,
+                } : undefined,
+              });
+            } else {
+              setIncomingCall(newCall);
+            }
+          } catch (e) {
+            setIncomingCall(newCall);
+          }
         }
       )
       .on(
@@ -203,35 +204,26 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, activeCall, incomingCall]);
 
-  // Start a new call
+  // Start a new call via API
   const startCall = useCallback(async (targetConversationId: string, callType: 'video' | 'voice') => {
     if (!user) return null;
 
     setIsLoading(true);
     try {
-      const channelName = `call_${targetConversationId}_${Date.now()}`;
+      const response = await api.calls.start({
+        conversation_id: targetConversationId,
+        call_type: callType,
+      });
 
-      const { data, error } = await supabase
-        .from('call_sessions')
-        .insert({
-          caller_id: user.id,
-          conversation_id: targetConversationId,
-          call_type: callType,
-          status: 'ringing',
-          channel_name: channelName,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error starting call:', error);
-        throw error;
+      if (!response.ok || !response.data) {
+        console.error('Error starting call:', response.error);
+        throw new Error(response.error?.message || 'Failed to start call');
       }
 
-      console.log('Call started:', data);
-      const callData = data as CallSession;
+      console.log('Call started:', response.data);
+      const callData = response.data as CallSession;
       setActiveCall(callData);
       return callData;
     } catch (error) {
@@ -242,29 +234,21 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
     }
   }, [user]);
 
-  // Accept incoming call
+  // Accept incoming call via API
   const acceptCall = useCallback(async (callId: string) => {
     if (!user) return;
 
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('call_sessions')
-        .update({
-          status: 'accepted',
-          started_at: new Date().toISOString(),
-        })
-        .eq('id', callId)
-        .select()
-        .single();
+      const response = await api.calls.accept(callId);
 
-      if (error) {
-        console.error('Error accepting call:', error);
-        throw error;
+      if (!response.ok || !response.data) {
+        console.error('Error accepting call:', response.error);
+        throw new Error(response.error?.message || 'Failed to accept call');
       }
 
-      console.log('Call accepted:', data);
-      setActiveCall(data as CallSession);
+      console.log('Call accepted:', response.data);
+      setActiveCall(response.data as CallSession);
       setIncomingCall(null);
     } catch (error) {
       console.error('Failed to accept call:', error);
@@ -273,23 +257,17 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
     }
   }, [user]);
 
-  // Reject incoming call
+  // Reject incoming call via API
   const rejectCall = useCallback(async (callId: string) => {
     if (!user) return;
 
     setIsLoading(true);
     try {
-      const { error } = await supabase
-        .from('call_sessions')
-        .update({
-          status: 'rejected',
-          ended_at: new Date().toISOString(),
-        })
-        .eq('id', callId);
+      const response = await api.calls.reject(callId);
 
-      if (error) {
-        console.error('Error rejecting call:', error);
-        throw error;
+      if (!response.ok) {
+        console.error('Error rejecting call:', response.error);
+        throw new Error(response.error?.message || 'Failed to reject call');
       }
 
       console.log('Call rejected');
@@ -305,23 +283,17 @@ export const useCallSignaling = ({ conversationId }: UseCallSignalingProps = {})
     }
   }, [user]);
 
-  // End active call
+  // End active call via API
   const endCall = useCallback(async () => {
     if (!user || !activeCall) return;
 
     setIsLoading(true);
     try {
-      const { error } = await supabase
-        .from('call_sessions')
-        .update({
-          status: 'ended',
-          ended_at: new Date().toISOString(),
-        })
-        .eq('id', activeCall.id);
+      const response = await api.calls.end(activeCall.id);
 
-      if (error) {
-        console.error('Error ending call:', error);
-        throw error;
+      if (!response.ok) {
+        console.error('Error ending call:', response.error);
+        throw new Error(response.error?.message || 'Failed to end call');
       }
 
       console.log('Call ended');

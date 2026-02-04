@@ -187,8 +187,73 @@ serve(async (req) => {
     // CONVERSATIONS
     // ========================================================================
 
+    // Route: GET /api-chat/conversations/direct/:userId - Find direct 1-1 conversation
+    if (req.method === 'GET' && pathParts.includes('conversations') && pathParts.includes('direct')) {
+      if (!hasScope(scopes, 'chat:read')) {
+        return errorResponse('FORBIDDEN', 'Requires chat:read scope', 403);
+      }
+
+      const targetUserId = pathParts[pathParts.indexOf('direct') + 1];
+      
+      if (!targetUserId) {
+        return errorResponse('VALIDATION_ERROR', 'Target user ID is required', 400);
+      }
+
+      // Find 1-1 conversation between current user and target user
+      // First get all non-group conversations where current user is a member
+      const { data: myConversations } = await supabase
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('user_id', userId);
+
+      if (!myConversations || myConversations.length === 0) {
+        await logUsage(supabase, auth, `/conversations/direct/${targetUserId}`, 'GET', 200, Date.now() - startTime, ipAddress);
+        return successResponse(null);
+      }
+
+      const myConvIds = myConversations.map((m: any) => m.conversation_id);
+
+      // Find conversations that are NOT group and contain the target user
+      const { data: targetConversations } = await supabase
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('user_id', targetUserId)
+        .in('conversation_id', myConvIds);
+
+      if (!targetConversations || targetConversations.length === 0) {
+        await logUsage(supabase, auth, `/conversations/direct/${targetUserId}`, 'GET', 200, Date.now() - startTime, ipAddress);
+        return successResponse(null);
+      }
+
+      const sharedConvIds = targetConversations.map((m: any) => m.conversation_id);
+
+      // Get the non-group conversation with exactly 2 members
+      const { data: conversations } = await supabase
+        .from('conversations')
+        .select(`
+          *,
+          members:conversation_members(
+            user_id,
+            role,
+            profile:profiles(id, username, display_name, avatar_url)
+          )
+        `)
+        .in('id', sharedConvIds)
+        .eq('is_group', false);
+
+      // Find conversation with exactly 2 members (1-1 chat)
+      const directConv = conversations?.find((conv: any) => 
+        conv.members?.length === 2 && 
+        conv.members.some((m: any) => m.user_id === userId) &&
+        conv.members.some((m: any) => m.user_id === targetUserId)
+      );
+
+      await logUsage(supabase, auth, `/conversations/direct/${targetUserId}`, 'GET', 200, Date.now() - startTime, ipAddress);
+      return successResponse(directConv || null);
+    }
+
     // Route: GET /api-chat/conversations
-    if (req.method === 'GET' && pathParts.includes('conversations') && !pathParts.includes('messages')) {
+    if (req.method === 'GET' && pathParts.includes('conversations') && !pathParts.includes('messages') && !pathParts.includes('direct')) {
       if (!hasScope(scopes, 'chat:read')) {
         return errorResponse('FORBIDDEN', 'Requires chat:read scope', 403);
       }
@@ -226,7 +291,7 @@ serve(async (req) => {
         return successResponse(data);
       }
 
-      // List all conversations
+      // List all conversations with last message
       const { data: memberData } = await supabase
         .from('conversation_members')
         .select('conversation_id')
@@ -236,7 +301,7 @@ serve(async (req) => {
 
       if (conversationIds.length === 0) {
         await logUsage(supabase, auth, '/conversations', 'GET', 200, Date.now() - startTime, ipAddress);
-        return successResponse([], 200, { count: 0 });
+        return successResponse({ conversations: [], total: 0 });
       }
 
       const { data, error } = await supabase
@@ -252,8 +317,24 @@ serve(async (req) => {
         .in('id', conversationIds)
         .order('updated_at', { ascending: false });
 
+      // Fetch last message for each conversation
+      const conversationsWithLastMessage = await Promise.all(
+        (data || []).map(async (conv: any) => {
+          const { data: lastMessage } = await supabase
+            .from('messages')
+            .select('id, content, message_type, created_at, sender_id')
+            .eq('conversation_id', conv.id)
+            .eq('is_deleted', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          return { ...conv, last_message: lastMessage };
+        })
+      );
+
       await logUsage(supabase, auth, '/conversations', 'GET', 200, Date.now() - startTime, ipAddress);
-      return successResponse(data || [], 200, { count: data?.length || 0 });
+      return successResponse({ conversations: conversationsWithLastMessage, total: conversationsWithLastMessage.length });
     }
 
     // Route: POST /api-chat/conversations
