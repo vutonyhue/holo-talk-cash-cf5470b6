@@ -28,6 +28,7 @@ import ImagePreviewDialog from './ImagePreviewDialog';
 import ImageLightbox, { LightboxImage } from './ImageLightbox';
 import ForwardMessageDialog from './ForwardMessageDialog';
 import TextInputContextMenu from './TextInputContextMenu';
+import { TypingIndicator } from './TypingIndicator';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { 
@@ -581,23 +582,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
             })}
             
             {/* Typing Indicator */}
-            {typingUsers.length > 0 && (
-              <div className="flex items-center gap-2 px-2 py-1">
-                <div className="flex items-center gap-1 px-3 py-2 bg-muted rounded-2xl">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {typingUsers.length === 1 
-                    ? `${typingUsers[0].name} đang nhập...`
-                    : `${typingUsers.map(u => u.name).join(', ')} đang nhập...`
-                  }
-                </span>
-              </div>
-            )}
+            <TypingIndicator typingUsers={typingUsers} />
             
             {/* Scroll anchor - invisible element at the end */}
             <div ref={messagesEndRef} />
