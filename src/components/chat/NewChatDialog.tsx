@@ -15,11 +15,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Search, Users, Loader2, UsersRound, X, ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface CreateConversationResult {
+  data?: any;
+  error?: Error | null;
+}
 
 interface NewChatDialogProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (memberIds: string[], name?: string, isGroup?: boolean) => Promise<void>;
+  onCreate: (memberIds: string[], name?: string, isGroup?: boolean) => Promise<CreateConversationResult | void>;
 }
 
 export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialogProps) {
@@ -67,10 +73,21 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
 
   const handleDirectChat = async (userId: string) => {
     setCreatingUserId(userId);
-    await onCreate([userId], undefined, false);
-    setCreatingUserId(null);
-    resetState();
-    onClose();
+    try {
+      const result = await onCreate([userId], undefined, false);
+      if (result && 'error' in result && result.error) {
+        console.error('[NewChatDialog] Failed to create conversation:', result.error);
+        toast.error('Không thể tạo cuộc trò chuyện. Vui lòng thử lại.');
+        return;
+      }
+      resetState();
+      onClose();
+    } catch (error) {
+      console.error('[NewChatDialog] Error creating conversation:', error);
+      toast.error('Có lỗi xảy ra. Vui lòng thử lại.');
+    } finally {
+      setCreatingUserId(null);
+    }
   };
 
   const toggleUserSelection = (userItem: Profile) => {

@@ -110,10 +110,13 @@ export default function Chat() {
   };
 
   const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean) => {
+    console.log('[handleNewChat] Called:', { memberIds, name, isGroup });
     const result = await createConversation(memberIds, name, isGroup);
+    console.log('[handleNewChat] Result:', result);
     if (result.data) {
       setSelectedConversationId(result.data.id);
     }
+    return result; // Return result so NewChatDialog can check for errors
   };
 
   const handleDeleteConversation = async (conversationId: string) => {
