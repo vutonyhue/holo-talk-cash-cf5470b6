@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 
@@ -13,80 +12,49 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
   const { user } = useAuth();
   const [readReceipts, setReadReceipts] = useState<Record<string, ReadReceipt[]>>({});
   const markedAsReadRef = useRef<Set<string>>(new Set());
-  const pendingFetchRef = useRef<boolean>(false);
 
-  // Fetch existing read receipts via API (debounced)
-  useEffect(() => {
-    if (!conversationId || messageIds.length === 0) return;
+  // Fetch existing read receipts via API
+  const fetchReadReceipts = useCallback(async (ids: string[]) => {
+    if (!conversationId || ids.length === 0) return;
     
     // Skip temp message IDs
-    const stableIds = messageIds.filter(id => !id.startsWith('temp_'));
+    const stableIds = ids.filter(id => !id.startsWith('temp_'));
     if (stableIds.length === 0) return;
+    
+    try {
+      const response = await api.readReceipts.getForMessages(stableIds);
 
-    // Debounce fetch
-    const timer = setTimeout(async () => {
-      if (pendingFetchRef.current) return;
-      pendingFetchRef.current = true;
-      
-      try {
-        const response = await api.readReceipts.getForMessages(stableIds);
-
-        if (response.ok && response.data) {
-          const receiptsMap: Record<string, ReadReceipt[]> = {};
-          response.data.receipts.forEach((receipt) => {
-            if (!receiptsMap[receipt.message_id]) {
-              receiptsMap[receipt.message_id] = [];
-            }
-            receiptsMap[receipt.message_id].push(receipt);
-          });
-          setReadReceipts(receiptsMap);
-        }
-      } catch (error) {
-        console.error('[useReadReceipts] Fetch error:', error);
-      } finally {
-        pendingFetchRef.current = false;
+      if (response.ok && response.data) {
+        const receiptsMap: Record<string, ReadReceipt[]> = {};
+        response.data.receipts.forEach((receipt) => {
+          if (!receiptsMap[receipt.message_id]) {
+            receiptsMap[receipt.message_id] = [];
+          }
+          receiptsMap[receipt.message_id].push(receipt);
+        });
+        setReadReceipts(receiptsMap);
       }
-    }, 200);
-
-    return () => clearTimeout(timer);
-  }, [conversationId, messageIds.join(',')]);
-
-  // Subscribe to realtime read receipts - KEEP SUPABASE REALTIME
-  useEffect(() => {
-    if (!conversationId) return;
-
-    const channel = supabase
-      .channel(`read-receipts:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'message_reads',
-        },
-        (payload) => {
-          const newReceipt = payload.new as ReadReceipt;
-          setReadReceipts((prev) => {
-            const existing = prev[newReceipt.message_id] || [];
-            // Avoid duplicates
-            if (existing.some(r => r.user_id === newReceipt.user_id)) {
-              return prev;
-            }
-            return {
-              ...prev,
-              [newReceipt.message_id]: [...existing, newReceipt],
-            };
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    } catch (error) {
+      console.error('[useReadReceipts] Fetch error:', error);
+    }
   }, [conversationId]);
 
-  // Mark messages as read via API (with debounce and deduplication)
+  // Update read receipts from SSE stream
+  const updateReadReceiptsFromStream = useCallback((streamReceipts: ReadReceipt[]) => {
+    const receiptsMap: Record<string, ReadReceipt[]> = {};
+    streamReceipts.forEach((receipt) => {
+      if (!receiptsMap[receipt.message_id]) {
+        receiptsMap[receipt.message_id] = [];
+      }
+      // Avoid duplicates
+      if (!receiptsMap[receipt.message_id].some(r => r.user_id === receipt.user_id)) {
+        receiptsMap[receipt.message_id].push(receipt);
+      }
+    });
+    setReadReceipts(prev => ({ ...prev, ...receiptsMap }));
+  }, []);
+
+  // Mark messages as read via API (with deduplication)
   const markAsRead = useCallback(async (messageIdsToMark: string[]) => {
     if (!user) return;
 
@@ -143,5 +111,7 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     isReadByOthers,
     getReadCount,
     getReadTime,
+    fetchReadReceipts,
+    updateReadReceiptsFromStream,
   };
 }
