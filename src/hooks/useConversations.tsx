@@ -57,11 +57,17 @@ export function useConversations() {
   };
 
   const createConversation = async (memberIds: string[], name?: string, isGroup = false) => {
-    if (!user) return { error: new Error('Not logged in') };
+    console.log('[createConversation] Starting:', { memberIds, name, isGroup, hasUser: !!user, userId: user?.id });
+
+    if (!user) {
+      console.error('[createConversation] No user logged in');
+      return { error: new Error('Not logged in') };
+    }
 
     // For 1-on-1 chats, check if conversation already exists in local state
     if (!isGroup && memberIds.length === 1) {
       const otherUserId = memberIds[0];
+      console.log('[createConversation] Checking for existing 1-on-1 conversation with:', otherUserId);
       
       const existingConv = conversations.find(conv => {
         if (conv.is_group) return false;
@@ -72,36 +78,45 @@ export function useConversations() {
       });
       
       if (existingConv) {
+        console.log('[createConversation] Found existing conversation in local state:', existingConv.id);
         return { data: existingConv, error: null };
       }
 
       // Check for existing direct conversation via API
       try {
+        console.log('[createConversation] Checking via API findDirectConversation...');
         const findResponse = await api.conversations.findDirectConversation(otherUserId);
+        console.log('[createConversation] findDirectConversation response:', findResponse);
         if (findResponse.ok && findResponse.data) {
           await fetchConversations();
           return { data: findResponse.data, error: null };
         }
+        console.log('[createConversation] No existing conversation found, will create new one');
       } catch (e) {
+        console.log('[createConversation] findDirectConversation error (will continue to create):', e);
         // Continue to create new conversation
       }
     }
 
     // Create new conversation via API
     try {
+      console.log('[createConversation] Creating new conversation via API...');
       const response = await api.conversations.create({
         member_ids: memberIds,
         name: isGroup ? name : undefined,
         is_group: isGroup,
       });
+      console.log('[createConversation] Create response:', response);
 
       if (!response.ok) {
+        console.error('[createConversation] API error:', response.error);
         return { error: new Error(response.error?.message || 'Failed to create conversation') };
       }
 
       await fetchConversations();
       return { data: response.data, error: null };
     } catch (error: any) {
+      console.error('[createConversation] Exception:', error);
       return { error };
     }
   };
