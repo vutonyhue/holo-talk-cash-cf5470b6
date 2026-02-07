@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
+import { ReadReceiptEventData } from '@/realtime/events';
 
 interface ReadReceipt {
   message_id: string;
@@ -39,19 +40,23 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     }
   }, [conversationId]);
 
-  // Update read receipts from SSE stream
-  const updateReadReceiptsFromStream = useCallback((streamReceipts: ReadReceipt[]) => {
-    const receiptsMap: Record<string, ReadReceipt[]> = {};
-    streamReceipts.forEach((receipt) => {
-      if (!receiptsMap[receipt.message_id]) {
-        receiptsMap[receipt.message_id] = [];
-      }
+  // Handle SSE read_receipt event
+  const handleReadReceipt = useCallback((receipt: ReadReceiptEventData) => {
+    setReadReceipts(prev => {
+      const existing = prev[receipt.message_id] || [];
       // Avoid duplicates
-      if (!receiptsMap[receipt.message_id].some(r => r.user_id === receipt.user_id)) {
-        receiptsMap[receipt.message_id].push(receipt);
+      if (existing.some(r => r.user_id === receipt.user_id)) {
+        return prev;
       }
+      return {
+        ...prev,
+        [receipt.message_id]: [...existing, {
+          message_id: receipt.message_id,
+          user_id: receipt.user_id,
+          read_at: receipt.read_at,
+        }],
+      };
     });
-    setReadReceipts(prev => ({ ...prev, ...receiptsMap }));
   }, []);
 
   // Mark messages as read via API (with deduplication)
@@ -112,6 +117,6 @@ export function useReadReceipts(conversationId: string, messageIds: string[]) {
     getReadCount,
     getReadTime,
     fetchReadReceipts,
-    updateReadReceiptsFromStream,
+    handleReadReceipt,
   };
 }

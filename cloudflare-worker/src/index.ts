@@ -568,6 +568,12 @@ async function handleSSEStream(
   // Initial connection event
   writer.write(encoder.encode(`event: connected\ndata: ${JSON.stringify({ conversationId, userId })}\n\n`));
 
+  // Track seen IDs to avoid duplicates
+  const seenReactionIds = new Set<string>();
+  const seenReceiptIds = new Set<string>();
+  let lastReactionCheck = Date.now();
+  let lastReceiptCheck = Date.now();
+
   // Polling function
   const poll = async () => {
     while (isActive && (Date.now() - startTime < SSE_MAX_DURATION)) {
@@ -615,6 +621,81 @@ async function handleSSEStream(
               await writer.write(encoder.encode(`event: message\ndata: ${eventData}\n\n`));
               lastMessageId = msg.id;
               lastMessageTime = new Date(msg.created_at).getTime();
+            }
+          }
+        }
+
+        // Poll reactions (every 2 seconds to reduce load)
+        if (Date.now() - lastReactionCheck > 2000 && lastMessageId) {
+          lastReactionCheck = Date.now();
+          
+          // Get recent reactions for messages in this conversation
+          const reactionsQuery = `${env.SUPABASE_URL}/rest/v1/message_reactions?select=id,message_id,user_id,emoji,created_at,messages!inner(conversation_id)&messages.conversation_id=eq.${conversationId}&order=created_at.desc&limit=20`;
+          
+          const reactionsRes = await fetch(reactionsQuery, {
+            headers: {
+              'apikey': env.SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            }
+          });
+
+          if (reactionsRes.ok) {
+            const reactions = await reactionsRes.json();
+            if (Array.isArray(reactions)) {
+              for (const reaction of reactions) {
+                if (!seenReactionIds.has(reaction.id)) {
+                  seenReactionIds.add(reaction.id);
+                  // Only send if not from current user and recent (last 5 seconds)
+                  const createdAt = new Date(reaction.created_at).getTime();
+                  if (reaction.user_id !== userId && Date.now() - createdAt < 5000) {
+                    const eventData = JSON.stringify({
+                      id: reaction.id,
+                      message_id: reaction.message_id,
+                      user_id: reaction.user_id,
+                      emoji: reaction.emoji,
+                      created_at: reaction.created_at,
+                    });
+                    await writer.write(encoder.encode(`event: reaction:added\ndata: ${eventData}\n\n`));
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Poll read receipts (every 2 seconds)
+        if (Date.now() - lastReceiptCheck > 2000 && lastMessageId) {
+          lastReceiptCheck = Date.now();
+          
+          // Get recent read receipts for messages in this conversation
+          const receiptsQuery = `${env.SUPABASE_URL}/rest/v1/message_reads?select=id,message_id,user_id,read_at,messages!inner(conversation_id)&messages.conversation_id=eq.${conversationId}&order=read_at.desc&limit=20`;
+          
+          const receiptsRes = await fetch(receiptsQuery, {
+            headers: {
+              'apikey': env.SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            }
+          });
+
+          if (receiptsRes.ok) {
+            const receipts = await receiptsRes.json();
+            if (Array.isArray(receipts)) {
+              for (const receipt of receipts) {
+                if (!seenReceiptIds.has(receipt.id)) {
+                  seenReceiptIds.add(receipt.id);
+                  // Only send if not from current user and recent (last 5 seconds)
+                  const readAt = new Date(receipt.read_at).getTime();
+                  if (receipt.user_id !== userId && Date.now() - readAt < 5000) {
+                    const eventData = JSON.stringify({
+                      id: receipt.id,
+                      message_id: receipt.message_id,
+                      user_id: receipt.user_id,
+                      read_at: receipt.read_at,
+                    });
+                    await writer.write(encoder.encode(`event: read_receipt\ndata: ${eventData}\n\n`));
+                  }
+                }
+              }
             }
           }
         }

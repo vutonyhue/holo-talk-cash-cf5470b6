@@ -1,11 +1,19 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './useAuth';
-import { useMessageStream } from './useMessageStream';
+import { useSSE } from '@/realtime/useSSE';
 import { Message, Profile } from '@/types';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { MessageEventData, TypingEventData, ReactionEventData, ReadReceiptEventData } from '@/realtime/events';
 
-export function useMessages(conversationId: string | null) {
+interface UseMessagesOptions {
+  onTyping?: (users: TypingEventData[]) => void;
+  onReactionAdded?: (reaction: ReactionEventData) => void;
+  onReactionRemoved?: (reaction: ReactionEventData) => void;
+  onReadReceipt?: (receipt: ReadReceiptEventData) => void;
+}
+
+export function useMessages(conversationId: string | null, options?: UseMessagesOptions) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,26 +97,54 @@ export function useMessages(conversationId: string | null) {
   }, [fetchMessages]);
 
   // Handle incoming SSE messages
-  const handleStreamMessage = useCallback((streamMessage: Message & { sender?: Profile }) => {
+  const handleStreamMessage = useCallback((streamMessage: MessageEventData) => {
+    // Convert SSE sender to Profile type with default values
+    const sender: Profile | undefined = streamMessage.sender ? {
+      id: streamMessage.sender.id,
+      username: streamMessage.sender.username,
+      display_name: streamMessage.sender.display_name,
+      avatar_url: streamMessage.sender.avatar_url,
+      wallet_address: null,
+      status: 'online',
+      last_seen: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } : undefined;
+
+    const message: Message = {
+      id: streamMessage.id,
+      conversation_id: streamMessage.conversation_id,
+      sender_id: streamMessage.sender_id,
+      content: streamMessage.content,
+      message_type: streamMessage.message_type,
+      metadata: streamMessage.metadata,
+      created_at: streamMessage.created_at,
+      updated_at: streamMessage.updated_at || streamMessage.created_at,
+      is_deleted: streamMessage.is_deleted,
+      deleted_at: streamMessage.deleted_at,
+      reply_to_id: streamMessage.reply_to_id,
+      sender,
+    };
+
     setMessages(prev => {
       // Case 1: Skip if message already exists (by ID)
-      if (prev.some(m => m.id === streamMessage.id)) {
+      if (prev.some(m => m.id === message.id)) {
         return prev;
       }
 
       // Case 2: Own message - check for optimistic update to replace
-      if (streamMessage.sender_id === user?.id) {
+      if (message.sender_id === user?.id) {
         const optimisticMatch = prev.find(m =>
           m._sending &&
-          m.sender_id === streamMessage.sender_id &&
-          m.content === streamMessage.content
+          m.sender_id === message.sender_id &&
+          m.content === message.content
         );
 
         if (optimisticMatch) {
           // Replace optimistic message with real one from server
           return prev.map(m =>
             m.id === optimisticMatch.id
-              ? { ...streamMessage, _sending: false }
+              ? { ...message, _sending: false }
               : m
           );
         }
@@ -117,24 +153,35 @@ export function useMessages(conversationId: string | null) {
       }
 
       // Case 3: Message from others - add to list
-      return [...prev, streamMessage];
+      return [...prev, message];
     });
   }, [user?.id]);
 
   // Handle message updates (edits, deletions)
-  const handleStreamUpdate = useCallback((updatedMessage: Message) => {
+  const handleStreamUpdate = useCallback((updatedMessage: MessageEventData) => {
     setMessages(prev =>
       prev.map(m =>
         m.id === updatedMessage.id
-          ? { ...m, ...updatedMessage }
+          ? { 
+              ...m, 
+              content: updatedMessage.content,
+              is_deleted: updatedMessage.is_deleted,
+              deleted_at: updatedMessage.deleted_at,
+              updated_at: updatedMessage.updated_at || m.updated_at,
+            }
           : m
       )
     );
   }, []);
 
-  // SSE stream options - memoized to prevent reconnection loops
-  const streamOptions = useMemo(() => ({
+  // SSE hook - unified realtime connection
+  const sseOptions = useMemo(() => ({
     onMessage: handleStreamMessage,
+    onMessageUpdate: handleStreamUpdate,
+    onTyping: options?.onTyping,
+    onReactionAdded: options?.onReactionAdded,
+    onReactionRemoved: options?.onReactionRemoved,
+    onReadReceipt: options?.onReadReceipt,
     onConnect: () => {
       console.log('[useMessages] SSE connected for conversation:', conversationId);
     },
@@ -148,12 +195,12 @@ export function useMessages(conversationId: string | null) {
         fetchMessages(); // Reload messages on connection failure
       }
     },
-  }), [handleStreamMessage, conversationId, fetchMessages]);
+  }), [handleStreamMessage, handleStreamUpdate, conversationId, fetchMessages, options]);
 
-  // Subscribe to SSE message stream
-  const { isConnected, isReconnecting, reconnect } = useMessageStream(
+  // Subscribe to SSE stream
+  const { isConnected, isReconnecting, connectionStatus, reconnect } = useSSE(
     conversationId,
-    streamOptions
+    sseOptions
   );
 
   // Send message with OPTIMISTIC UPDATE
@@ -566,6 +613,7 @@ export function useMessages(conversationId: string | null) {
     // SSE connection status
     isConnected,
     isReconnecting,
+    connectionStatus,
     reconnect,
   };
 }
