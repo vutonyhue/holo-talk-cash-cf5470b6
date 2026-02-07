@@ -140,11 +140,17 @@ export default function VideoVoiceSettings() {
                   <SelectValue placeholder="Chọn camera" />
                 </SelectTrigger>
                 <SelectContent>
-                  {cameras.map((camera) => (
-                    <SelectItem key={camera.deviceId} value={camera.deviceId}>
-                      {camera.label}
+                  {cameras.length > 0 ? (
+                    cameras.map((camera) => (
+                      <SelectItem key={camera.deviceId || `camera-${Math.random()}`} value={camera.deviceId || "default-camera"}>
+                        {camera.label || "Camera không xác định"}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-camera" disabled>
+                      Không tìm thấy camera
                     </SelectItem>
-                  ))}
+                  )}
                 </SelectContent>
               </Select>
               
@@ -176,11 +182,17 @@ export default function VideoVoiceSettings() {
                   <SelectValue placeholder="Chọn microphone" />
                 </SelectTrigger>
                 <SelectContent>
-                  {microphones.map((mic) => (
-                    <SelectItem key={mic.deviceId} value={mic.deviceId}>
-                      {mic.label}
+                  {microphones.length > 0 ? (
+                    microphones.map((mic) => (
+                      <SelectItem key={mic.deviceId || `mic-${Math.random()}`} value={mic.deviceId || "default-mic"}>
+                        {mic.label || "Microphone không xác định"}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-mic" disabled>
+                      Không tìm thấy microphone
                     </SelectItem>
-                  ))}
+                  )}
                 </SelectContent>
               </Select>
               
@@ -241,12 +253,12 @@ export default function VideoVoiceSettings() {
                 <SelectContent>
                   {speakers.length > 0 ? (
                     speakers.map((speaker) => (
-                      <SelectItem key={speaker.deviceId} value={speaker.deviceId}>
-                        {speaker.label}
+                      <SelectItem key={speaker.deviceId || `speaker-${Math.random()}`} value={speaker.deviceId || "default-speaker"}>
+                        {speaker.label || "Loa không xác định"}
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectItem value="default" disabled>
+                    <SelectItem value="no-speaker" disabled>
                       Không tìm thấy loa
                     </SelectItem>
                   )}
