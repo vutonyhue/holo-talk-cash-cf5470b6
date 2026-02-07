@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { api } from '@/lib/api';
+import { ReactionEventData } from '@/realtime/events';
 
 export interface Reaction {
   id: string;
@@ -44,14 +45,27 @@ export function useReactions(conversationId: string | null) {
     }
   }, []);
 
-  // Update reactions from SSE stream
-  const updateReactionsFromStream = useCallback((streamReactions: Reaction[]) => {
-    const reactionMap = new Map<string, Reaction[]>();
-    streamReactions.forEach((r: Reaction) => {
-      const existing = reactionMap.get(r.message_id) || [];
-      reactionMap.set(r.message_id, [...existing, r]);
+  // Handle SSE reaction:added event
+  const handleReactionAdded = useCallback((reaction: ReactionEventData) => {
+    setReactions(prev => {
+      const updated = new Map(prev);
+      const existing = updated.get(reaction.message_id) || [];
+      // Avoid duplicates
+      if (!existing.some(r => r.id === reaction.id)) {
+        updated.set(reaction.message_id, [...existing, reaction as Reaction]);
+      }
+      return updated;
     });
-    setReactions(reactionMap);
+  }, []);
+
+  // Handle SSE reaction:removed event
+  const handleReactionRemoved = useCallback((reaction: ReactionEventData) => {
+    setReactions(prev => {
+      const updated = new Map(prev);
+      const existing = updated.get(reaction.message_id) || [];
+      updated.set(reaction.message_id, existing.filter(r => r.id !== reaction.id));
+      return updated;
+    });
   }, []);
 
   const toggleReaction = async (messageId: string, emoji: string) => {
@@ -150,6 +164,7 @@ export function useReactions(conversationId: string | null) {
     fetchReactions,
     toggleReaction,
     getReactionGroups,
-    updateReactionsFromStream,
+    handleReactionAdded,
+    handleReactionRemoved,
   };
 }

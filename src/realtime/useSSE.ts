@@ -1,36 +1,29 @@
 /**
- * SSE-based message stream hook
- * Replaces Supabase Realtime for message updates
+ * Unified SSE Realtime Hook
+ * Single hook for all realtime events (messages, typing, reactions, read receipts)
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { Message, Profile } from '@/types';
-import { useAuth } from './useAuth';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  ConnectionStatus,
+  MessageEventData,
+  TypingEventData,
+  ReactionEventData,
+  ReadReceiptEventData,
+  UseSSEOptions,
+  UseSSEReturn,
+} from './events';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.india-25d.workers.dev';
 
-interface StreamMessage extends Message {
-  sender?: Profile;
-}
+const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_RECONNECT_DELAY = 1000;
 
-interface TypingUser {
-  user_id: string;
-  user_name: string;
-  timestamp: number;
-}
-
-interface UseMessageStreamOptions {
-  onMessage: (message: StreamMessage) => void;
-  onTyping?: (users: TypingUser[]) => void;
-  onConnect?: () => void;
-  onDisconnect?: () => void;
-  onError?: (error: Error) => void;
-}
-
-export function useMessageStream(
+export function useSSE(
   conversationId: string | null,
-  options: UseMessageStreamOptions
-) {
+  options: UseSSEOptions
+): UseSSEReturn {
   const { session } = useAuth();
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -38,8 +31,9 @@ export function useMessageStream(
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
 
-  const MAX_RECONNECT_ATTEMPTS = 5;
-  const BASE_RECONNECT_DELAY = 1000;
+  // Memoize options to prevent unnecessary reconnections
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const disconnect = useCallback(() => {
     if (eventSourceRef.current) {
@@ -75,7 +69,7 @@ export function useMessageStream(
         setIsConnected(true);
         setIsReconnecting(false);
         reconnectAttemptsRef.current = 0;
-        options.onConnect?.();
+        optionsRef.current.onConnect?.();
       };
 
       // Handle connected event
@@ -91,39 +85,89 @@ export function useMessageStream(
       // Handle message events
       eventSource.addEventListener('message', (event) => {
         try {
-          const message = JSON.parse(event.data) as StreamMessage;
-          options.onMessage(message);
+          const message = JSON.parse(event.data) as MessageEventData;
+          optionsRef.current.onMessage?.(message);
         } catch (e) {
           console.error('[SSE] Failed to parse message:', e);
+        }
+      });
+
+      // Handle message update events
+      eventSource.addEventListener('message:update', (event) => {
+        try {
+          const message = JSON.parse(event.data) as MessageEventData;
+          optionsRef.current.onMessageUpdate?.(message);
+        } catch (e) {
+          console.error('[SSE] Failed to parse message update:', e);
+        }
+      });
+
+      // Handle message delete events
+      eventSource.addEventListener('message:delete', (event) => {
+        try {
+          const message = JSON.parse(event.data) as MessageEventData;
+          optionsRef.current.onMessageDelete?.(message);
+        } catch (e) {
+          console.error('[SSE] Failed to parse message delete:', e);
         }
       });
 
       // Handle typing events
       eventSource.addEventListener('typing', (event) => {
         try {
-          const users = JSON.parse(event.data) as TypingUser[];
-          options.onTyping?.(users);
+          const users = JSON.parse(event.data) as TypingEventData[];
+          optionsRef.current.onTyping?.(users);
         } catch (e) {
           console.error('[SSE] Failed to parse typing event:', e);
         }
       });
 
+      // Handle reaction added events
+      eventSource.addEventListener('reaction:added', (event) => {
+        try {
+          const reaction = JSON.parse(event.data) as ReactionEventData;
+          optionsRef.current.onReactionAdded?.(reaction);
+        } catch (e) {
+          console.error('[SSE] Failed to parse reaction:added event:', e);
+        }
+      });
+
+      // Handle reaction removed events
+      eventSource.addEventListener('reaction:removed', (event) => {
+        try {
+          const reaction = JSON.parse(event.data) as ReactionEventData;
+          optionsRef.current.onReactionRemoved?.(reaction);
+        } catch (e) {
+          console.error('[SSE] Failed to parse reaction:removed event:', e);
+        }
+      });
+
+      // Handle read receipt events
+      eventSource.addEventListener('read_receipt', (event) => {
+        try {
+          const receipt = JSON.parse(event.data) as ReadReceiptEventData;
+          optionsRef.current.onReadReceipt?.(receipt);
+        } catch (e) {
+          console.error('[SSE] Failed to parse read_receipt event:', e);
+        }
+      });
+
       // Handle close event
-      eventSource.addEventListener('close', (event) => {
+      eventSource.addEventListener('close', () => {
         console.log('[SSE] Stream closed by server');
         disconnect();
         // Server closed connection, try to reconnect
         scheduleReconnect();
       });
 
-      eventSource.onerror = (event) => {
+      eventSource.onerror = () => {
         console.error('[SSE] Connection error');
         setIsConnected(false);
         
         // EventSource auto-reconnects, but we track state
         if (eventSource.readyState === EventSource.CLOSED) {
           disconnect();
-          options.onDisconnect?.();
+          optionsRef.current.onDisconnect?.();
           scheduleReconnect();
         }
       };
@@ -131,15 +175,16 @@ export function useMessageStream(
       eventSourceRef.current = eventSource;
     } catch (error) {
       console.error('[SSE] Failed to create connection:', error);
-      options.onError?.(error as Error);
+      optionsRef.current.onError?.(error as Error);
       scheduleReconnect();
     }
-  }, [conversationId, session?.access_token, options, disconnect]);
+  }, [conversationId, session?.access_token, disconnect]);
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
       console.log('[SSE] Max reconnect attempts reached');
-      options.onError?.(new Error('Max reconnection attempts reached'));
+      optionsRef.current.onError?.(new Error('Max reconnection attempts reached'));
+      setIsReconnecting(false);
       return;
     }
 
@@ -153,7 +198,7 @@ export function useMessageStream(
     reconnectTimeoutRef.current = window.setTimeout(() => {
       connect();
     }, delay);
-  }, [connect, options]);
+  }, [connect]);
 
   // Connect when conversation changes
   useEffect(() => {
@@ -172,9 +217,17 @@ export function useMessageStream(
     connect();
   }, [connect]);
 
+  // Connection status
+  const connectionStatus: ConnectionStatus = useMemo(() => {
+    if (isConnected) return 'connected';
+    if (isReconnecting) return 'reconnecting';
+    return 'offline';
+  }, [isConnected, isReconnecting]);
+
   return {
     isConnected,
     isReconnecting,
+    connectionStatus,
     reconnect,
     disconnect,
   };

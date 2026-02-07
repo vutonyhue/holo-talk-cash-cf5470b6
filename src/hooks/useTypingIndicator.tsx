@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { api } from '@/lib/api';
+import { TypingEventData } from '@/realtime/events';
 
 interface TypingUser {
   id: string;
@@ -38,11 +39,30 @@ export function useTypingIndicator(conversationId: string | null) {
     // No need to send explicit "stop typing" signal
   }, []);
 
-  // Update typing users from SSE stream
+  // Update typing users from SSE stream (mapped to TypingUser format)
   const updateTypingUsers = useCallback((users: TypingUser[]) => {
     setTypingUsers(prev => {
       // Filter out own user
       const filtered = users.filter(u => u.id !== profile?.id);
+      
+      // Only update if actually changed
+      if (JSON.stringify(filtered) !== JSON.stringify(prev)) {
+        return filtered;
+      }
+      return prev;
+    });
+  }, [profile?.id]);
+
+  // Update from SSE TypingEventData format
+  const setTypingUsersFromSSE = useCallback((users: TypingEventData[]) => {
+    setTypingUsers(prev => {
+      // Convert SSE format to local format and filter out own user
+      const filtered = users
+        .filter(u => u.user_id !== profile?.id)
+        .map(u => ({
+          id: u.user_id,
+          name: u.user_name,
+        }));
       
       // Only update if actually changed
       if (JSON.stringify(filtered) !== JSON.stringify(prev)) {
@@ -73,5 +93,6 @@ export function useTypingIndicator(conversationId: string | null) {
     broadcastTyping,
     stopTyping,
     updateTypingUsers,
+    setTypingUsersFromSSE,
   };
 }
