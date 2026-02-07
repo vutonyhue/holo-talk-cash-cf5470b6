@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { useSearchParams } from "react-router-dom";
+import { api, ApiKey } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import { useWebhooks } from "@/hooks/useWebhooks";
 import { WebhookManager } from "@/components/webhooks/WebhookManager";
 import { WebhookTester } from "@/components/webhooks/WebhookTester";
 import { WebhookDeliveryLogs } from "@/components/webhooks/WebhookDeliveryLogs";
+import { supabase } from "@/integrations/supabase/client";
 
 const AVAILABLE_SCOPES = [
   { id: 'chat:read', label: 'Chat Read', description: 'Read conversations and messages' },
@@ -34,7 +36,10 @@ const AVAILABLE_SCOPES = [
 export default function DeveloperPortal() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [apiKeys, setApiKeys] = useState<any[]>([]);
+  const [searchParams] = useSearchParams();
+  const defaultTab = searchParams.get('tab') || 'api-keys';
+  
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['chat:read', 'users:read']);
@@ -65,27 +70,25 @@ export default function DeveloperPortal() {
     rotateSecret,
   } = useWebhooks(webhookApiKey?.id, user?.id, webhookApiKey?.scopes);
 
-  useEffect(() => {
-    if (user) {
-      fetchData();
-      fetchConversations();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (webhookApiKey) {
-      fetchWebhooks();
-    }
-  }, [webhookApiKey?.id, fetchWebhooks]);
-
-  const fetchData = async () => {
+  const fetchApiKeys = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('api_keys').select('*').order('created_at', { ascending: false });
-    setApiKeys(data || []);
-    setLoading(false);
-  };
+    try {
+      const response = await api.apiKeys.list();
+      if (response.ok && response.data) {
+        setApiKeys(response.data.keys || []);
+      } else {
+        console.error('[DeveloperPortal] Error fetching API keys:', response.error);
+        toast.error("Lỗi tải danh sách API keys");
+      }
+    } catch (error) {
+      console.error('[DeveloperPortal] Fetch error:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const fetchConversations = async () => {
+  const fetchConversations = useCallback(async () => {
+    // Still use Supabase directly for conversation list (not part of API Gateway scope)
     const { data } = await supabase
       .from('conversation_members')
       .select('conversation:conversations(id, name, is_group)')
@@ -95,7 +98,20 @@ export default function DeveloperPortal() {
       const convos = data.map((d: any) => d.conversation).filter(Boolean);
       setConversations(convos);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user) {
+      fetchApiKeys();
+      fetchConversations();
+    }
+  }, [user, fetchApiKeys, fetchConversations]);
+
+  useEffect(() => {
+    if (webhookApiKey) {
+      fetchWebhooks();
+    }
+  }, [webhookApiKey?.id, fetchWebhooks]);
 
   const createApiKey = async () => {
     if (!newKeyName.trim()) {
@@ -105,33 +121,42 @@ export default function DeveloperPortal() {
 
     const origins = allowedOrigins.split(',').map(o => o.trim()).filter(Boolean);
 
-    const { data, error } = await supabase.functions.invoke('api-keys', {
-      method: 'POST',
-      body: { 
-        name: newKeyName, 
+    try {
+      const response = await api.apiKeys.create({
+        name: newKeyName,
         scopes: selectedScopes,
-        allowed_origins: origins,
-      },
-    });
+        allowed_origins: origins.length > 0 ? origins : undefined,
+      });
 
-    if (error || !data?.success) {
+      if (!response.ok || !response.data) {
+        toast.error("Lỗi tạo API key");
+        return;
+      }
+
+      setCreatedKey(response.data.api_key);
+      setNewKeyName("");
+      setSelectedScopes(['chat:read', 'users:read']);
+      setAllowedOrigins("");
+      fetchApiKeys();
+      toast.success("Tạo API key thành công! Lưu lại key ngay.");
+    } catch (error) {
+      console.error('[DeveloperPortal] Create API key error:', error);
       toast.error("Lỗi tạo API key");
-      return;
     }
-
-    setCreatedKey(data.data.api_key);
-    setNewKeyName("");
-    setSelectedScopes(['chat:read', 'users:read']);
-    setAllowedOrigins("");
-    fetchData();
-    toast.success("Tạo API key thành công! Lưu lại key ngay.");
   };
 
   const deleteApiKey = async (id: string) => {
-    const { error } = await supabase.from('api_keys').delete().eq('id', id);
-    if (!error) {
-      fetchData();
-      toast.success("Đã xóa API key");
+    try {
+      const response = await api.apiKeys.delete(id);
+      if (response.ok) {
+        fetchApiKeys();
+        toast.success("Đã xóa API key");
+      } else {
+        toast.error("Lỗi xóa API key");
+      }
+    } catch (error) {
+      console.error('[DeveloperPortal] Delete API key error:', error);
+      toast.error("Lỗi xóa API key");
     }
   };
 

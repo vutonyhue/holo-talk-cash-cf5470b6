@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { api } from '@/lib/api';
 
 interface TypingUser {
   id: string;
@@ -10,10 +10,9 @@ interface TypingUser {
 export function useTypingIndicator(conversationId: string | null) {
   const { profile } = useAuth();
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTypingRef = useRef<number>(0);
 
-  // Broadcast typing status
+  // Broadcast typing status via API Gateway
   const broadcastTyping = useCallback(async () => {
     if (!conversationId || !profile) return;
 
@@ -22,68 +21,57 @@ export function useTypingIndicator(conversationId: string | null) {
     if (now - lastTypingRef.current < 2000) return;
     lastTypingRef.current = now;
 
-    const channel = supabase.channel(`typing:${conversationId}`);
-    
-    await channel.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: {
-        user_id: profile.id,
-        user_name: profile.display_name || profile.username,
-        timestamp: now,
-      },
-    });
+    try {
+      await api.conversations.sendTyping(
+        conversationId, 
+        profile.display_name || profile.username
+      );
+    } catch (error) {
+      // Silent fail for typing - not critical
+      console.debug('[useTypingIndicator] Failed to send typing:', error);
+    }
   }, [conversationId, profile]);
 
-  // Stop typing (clear from others' view)
+  // Stop typing (no-op since typing expires automatically)
   const stopTyping = useCallback(() => {
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = null;
-    }
+    // Typing indicators auto-expire on the server after 3 seconds
+    // No need to send explicit "stop typing" signal
   }, []);
 
-  // Listen for typing events from others
+  // Update typing users from SSE stream
+  const updateTypingUsers = useCallback((users: TypingUser[]) => {
+    setTypingUsers(prev => {
+      // Filter out own user
+      const filtered = users.filter(u => u.id !== profile?.id);
+      
+      // Only update if actually changed
+      if (JSON.stringify(filtered) !== JSON.stringify(prev)) {
+        return filtered;
+      }
+      return prev;
+    });
+  }, [profile?.id]);
+
+  // Auto-clear typing users after 3 seconds of no updates
   useEffect(() => {
-    if (!conversationId || !profile) return;
+    if (typingUsers.length === 0) return;
+    
+    const timer = setTimeout(() => {
+      setTypingUsers([]);
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, [typingUsers]);
 
-    const channel = supabase
-      .channel(`typing:${conversationId}`)
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        const { user_id, user_name, timestamp } = payload.payload;
-        
-        // Ignore own typing
-        if (user_id === profile.id) return;
-
-        // Add/update typing user
-        setTypingUsers((prev) => {
-          const existing = prev.find((u) => u.id === user_id);
-          if (existing) return prev;
-          return [...prev, { id: user_id, name: user_name }];
-        });
-
-        // Remove after 3 seconds of no updates
-        setTimeout(() => {
-          setTypingUsers((prev) => prev.filter((u) => u.id !== user_id));
-        }, 3000);
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId, profile]);
-
-  // Cleanup on unmount
+  // Clear typing users when conversation changes
   useEffect(() => {
-    return () => {
-      stopTyping();
-    };
-  }, [stopTyping]);
+    setTypingUsers([]);
+  }, [conversationId]);
 
   return {
     typingUsers,
     broadcastTyping,
     stopTyping,
+    updateTypingUsers,
   };
 }

@@ -1,5 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { api } from '@/lib/api';
 
@@ -45,62 +44,15 @@ export function useReactions(conversationId: string | null) {
     }
   }, []);
 
-  // Subscribe to realtime reactions
-  useEffect(() => {
-    if (!conversationId) return;
-
-    const channel = supabase
-      .channel(`reactions:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'message_reactions',
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newReaction = payload.new as Reaction;
-            setReactions(prev => {
-              const updated = new Map(prev);
-              const existing = updated.get(newReaction.message_id) || [];
-              
-              // Check if already exists (from optimistic update)
-              const existingIndex = existing.findIndex(r => 
-                r.id === newReaction.id || 
-                (r.user_id === newReaction.user_id && r.emoji === newReaction.emoji)
-              );
-              
-              if (existingIndex >= 0) {
-                // Replace temp with real reaction
-                const newExisting = [...existing];
-                newExisting[existingIndex] = newReaction;
-                updated.set(newReaction.message_id, newExisting);
-              } else {
-                updated.set(newReaction.message_id, [...existing, newReaction]);
-              }
-              return updated;
-            });
-          } else if (payload.eventType === 'DELETE') {
-            const oldReaction = payload.old as Reaction;
-            setReactions(prev => {
-              const updated = new Map(prev);
-              const existing = updated.get(oldReaction.message_id) || [];
-              updated.set(
-                oldReaction.message_id,
-                existing.filter(r => r.id !== oldReaction.id)
-              );
-              return updated;
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId]);
+  // Update reactions from SSE stream
+  const updateReactionsFromStream = useCallback((streamReactions: Reaction[]) => {
+    const reactionMap = new Map<string, Reaction[]>();
+    streamReactions.forEach((r: Reaction) => {
+      const existing = reactionMap.get(r.message_id) || [];
+      reactionMap.set(r.message_id, [...existing, r]);
+    });
+    setReactions(reactionMap);
+  }, []);
 
   const toggleReaction = async (messageId: string, emoji: string) => {
     if (!user) return;
@@ -198,5 +150,6 @@ export function useReactions(conversationId: string | null) {
     fetchReactions,
     toggleReaction,
     getReactionGroups,
+    updateReactionsFromStream,
   };
 }

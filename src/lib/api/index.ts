@@ -61,6 +61,7 @@ export const api = {
 
 // Export types
 export * from './types';
+export type { ApiKey, CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyListResponse } from './modules/apiKeys';
 
 // Export client for advanced usage
 export { apiClient };
