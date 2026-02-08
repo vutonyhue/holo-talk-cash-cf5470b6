@@ -21,42 +21,48 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Get user from JWT
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    // Get auth token from header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.error('[get-referral-code] Missing authorization header');
       return new Response(
         JSON.stringify({ error: 'Missing authorization header' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    
-    // Use anon key with auth header to validate JWT
-    const supabaseAuth = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    // Use anon key with Authorization header to verify user (standard pattern)
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    // Verify user - DO NOT pass token, let client use header
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     
     if (authError || !user) {
-      console.error('Auth error:', authError);
+      console.error('[get-referral-code] Auth error:', {
+        message: authError?.message,
+        status: authError?.status,
+        hasHeader: !!authHeader
+      });
       return new Response(
-        JSON.stringify({ error: 'Invalid token' }),
+        JSON.stringify({ 
+          error: 'Invalid token',
+          detail: authError?.message || 'Authentication failed'
+        }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // Use service role for database operations (bypasses RLS)
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const userId = user.id;
-    console.log('Getting referral code for user:', userId);
+    console.log('[get-referral-code] Getting referral code for user:', userId);
 
     // Check if user already has a referral code
     const { data: existingCode, error: fetchError } = await supabase
@@ -66,7 +72,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (existingCode) {
-      console.log('Found existing referral code:', existingCode.code);
+      console.log('[get-referral-code] Found existing code:', existingCode.code);
       return new Response(
         JSON.stringify({
           code: existingCode.code,
@@ -98,6 +104,7 @@ Deno.serve(async (req) => {
     }
 
     if (attempts >= maxAttempts) {
+      console.error('[get-referral-code] Failed to generate unique code after', maxAttempts, 'attempts');
       return new Response(
         JSON.stringify({ error: 'Failed to generate unique code' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -115,14 +122,14 @@ Deno.serve(async (req) => {
       .single();
 
     if (insertError) {
-      console.error('Insert error:', insertError);
+      console.error('[get-referral-code] Insert error:', insertError);
       return new Response(
         JSON.stringify({ error: 'Failed to create referral code' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Created new referral code:', code);
+    console.log('[get-referral-code] Created new code:', code);
 
     return new Response(
       JSON.stringify({
@@ -136,7 +143,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('[get-referral-code] Unexpected error:', error);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
