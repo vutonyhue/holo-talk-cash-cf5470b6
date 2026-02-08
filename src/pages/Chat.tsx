@@ -201,6 +201,23 @@ export default function Chat() {
     };
     
     if (normalizedResult.data?.id) {
+      // Inject conversation data immediately as fallback
+      // This prevents waiting for fetchConversations() which may have RLS delays
+      if (result.data) {
+        const convData = result.data as any;
+        const immediateConversation: Conversation = {
+          id: convData.id,
+          name: convData.name || null,
+          is_group: convData.is_group || false,
+          avatar_url: convData.avatar_url || null,
+          created_by: convData.created_by || user?.id || null,
+          created_at: convData.created_at || new Date().toISOString(),
+          updated_at: convData.updated_at || new Date().toISOString(),
+          members: convData.members || [],
+        };
+        console.log('[handleNewChat] Injecting immediate fallback:', immediateConversation.id);
+        setFallbackConversation(immediateConversation);
+      }
       setSelectedConversationId(normalizedResult.data.id);
     } else if (!normalizedResult.error) {
       toast.error('Không thể mở cuộc trò chuyện.');
