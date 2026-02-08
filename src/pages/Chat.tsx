@@ -109,17 +109,24 @@ export default function Chat() {
     if (tab === 'settings') setActiveTab('settings');
   };
 
-  const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean) => {
+  const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean): Promise<{ data: { id: string } | null; error: Error | null }> => {
     console.log('[handleNewChat] Called:', { memberIds, name, isGroup });
     const result = await createConversation(memberIds, name, isGroup);
     console.log('[handleNewChat] Result:', result);
-    const conversationId = result?.data?.id;
-    if (conversationId) {
-      setSelectedConversationId(conversationId);
-    } else {
-      toast.error('Khong the mo cuoc tro chuyen.');
+    
+    // Normalize the result to always have consistent shape
+    const normalizedResult = {
+      data: result?.data?.id ? { id: result.data.id } : null,
+      error: result?.error || null,
+    };
+    
+    if (normalizedResult.data?.id) {
+      setSelectedConversationId(normalizedResult.data.id);
+    } else if (!normalizedResult.error) {
+      toast.error('Không thể mở cuộc trò chuyện.');
     }
-    return result; // Return result so NewChatDialog can check for errors
+    
+    return normalizedResult;
   };
 
   const handleDeleteConversation = async (conversationId: string) => {
