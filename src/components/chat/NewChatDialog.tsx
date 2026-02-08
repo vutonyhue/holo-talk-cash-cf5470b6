@@ -18,14 +18,14 @@ import { Search, Users, Loader2, UsersRound, X, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface CreateConversationResult {
-  data?: { id: string } | null;
-  error?: Error | null;
+  data: { id: string } | null;
+  error: Error | null;
 }
 
 interface NewChatDialogProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (memberIds: string[], name?: string, isGroup?: boolean) => Promise<CreateConversationResult | void>;
+  onCreate: (memberIds: string[], name?: string, isGroup?: boolean) => Promise<CreateConversationResult>;
 }
 
 export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialogProps) {
@@ -76,17 +76,18 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
     setCreatingUserId(userId);
     try {
       const result = await onCreate([userId], undefined, false);
-      if (result && 'error' in result && result.error) {
+      
+      if (result.error) {
         console.error('[NewChatDialog] Failed to create conversation:', result.error);
         toast.error('Không thể tạo cuộc trò chuyện. Vui lòng thử lại.');
         return;
       }
-      const conversationId = result?.data?.id;
-      if (conversationId) {
+      
+      if (result.data?.id) {
         resetState();
         onClose();
       } else {
-        toast.error('Khong the tao cuoc tro chuyen. Vui long thu lai.');
+        toast.error('Không thể tạo cuộc trò chuyện. Vui lòng thử lại.');
       }
     } catch (error) {
       console.error('[NewChatDialog] Error creating conversation:', error);
@@ -118,13 +119,22 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
     try {
       const memberIds = selectedUsers.map(u => u.id);
       const result = await onCreate(memberIds, groupName.trim(), true);
-      const conversationId = (result as CreateConversationResult | void)?.data?.id;
-      if (conversationId) {
+      
+      if (result.error) {
+        console.error('[NewChatDialog] Failed to create group:', result.error);
+        toast.error('Không thể tạo nhóm. Vui lòng thử lại.');
+        return;
+      }
+      
+      if (result.data?.id) {
         resetState();
         onClose();
       } else {
-        toast.error('Khong the tao cuoc tro chuyen. Vui long thu lai.');
+        toast.error('Không thể tạo nhóm. Vui lòng thử lại.');
       }
+    } catch (error) {
+      console.error('[NewChatDialog] Error creating group:', error);
+      toast.error('Có lỗi xảy ra. Vui lòng thử lại.');
     } finally {
       setCreatingGroup(false);
     }
