@@ -14,8 +14,7 @@ import {
   UseSSEOptions,
   UseSSEReturn,
 } from './events';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.india-25d.workers.dev';
+import { API_BASE_URL } from '@/config/workerUrls';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_RECONNECT_DELAY = 1000;

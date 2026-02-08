@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local env files (do not commit secrets)
+.env
+.dev.vars
+
+# Cloudflare Wrangler local state/cache
+.wrangler/

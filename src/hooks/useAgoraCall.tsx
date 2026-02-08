@@ -6,9 +6,7 @@ import AgoraRTC, {
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng';
 import { supabase } from '@/integrations/supabase/client';
-
-// Cloudflare Worker URL for Agora token generation
-const AGORA_TOKEN_WORKER_URL = 'https://agora-token-worker.india-25d.workers.dev';
+import { AGORA_TOKEN_WORKER_URL } from '@/config/workerUrls';
 
 // ============= AGORA LOGGING UTILITY =============
 const agoraLog = {

@@ -4,8 +4,7 @@
  */
 
 import { ApiClient } from '../apiClient';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://funchat-api-gateway.india-25d.workers.dev';
+import { API_BASE_URL } from '@/config/workerUrls';
 
 export interface AIChatMessage {
   role: 'user' | 'assistant' | 'system';
