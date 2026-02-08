@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+﻿import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiKey } from "@/lib/api";
@@ -18,7 +18,7 @@ import { useWebhooks } from "@/hooks/useWebhooks";
 import { WebhookManager } from "@/components/webhooks/WebhookManager";
 import { WebhookTester } from "@/components/webhooks/WebhookTester";
 import { WebhookDeliveryLogs } from "@/components/webhooks/WebhookDeliveryLogs";
-import { supabase } from "@/integrations/supabase/client";
+import { API_BASE_URL } from "@/config/workerUrls";
 
 const AVAILABLE_SCOPES = [
   { id: 'chat:read', label: 'Chat Read', description: 'Read conversations and messages' },
@@ -54,6 +54,8 @@ export default function DeveloperPortal() {
   const [widgetPosition, setWidgetPosition] = useState<string>('bottom-right');
   const [widgetToken, setWidgetToken] = useState<string | null>(null);
   const [generatingToken, setGeneratingToken] = useState(false);
+  const [widgetApiKeySecret, setWidgetApiKeySecret] = useState<string>("");
+  const [showWidgetApiKey, setShowWidgetApiKey] = useState(false);
 
   // Webhook management - use first API key with webhooks scope
   const webhookApiKey = apiKeys.find(k => k.is_active && k.scopes?.includes('webhooks:write'));
@@ -88,15 +90,21 @@ export default function DeveloperPortal() {
   }, []);
 
   const fetchConversations = useCallback(async () => {
-    // Still use Supabase directly for conversation list (not part of API Gateway scope)
-    const { data } = await supabase
-      .from('conversation_members')
-      .select('conversation:conversations(id, name, is_group)')
-      .eq('user_id', user?.id);
-    
-    if (data) {
-      const convos = data.map((d: any) => d.conversation).filter(Boolean);
+    if (!user) return;
+
+    try {
+      const response = await api.conversations.list({ limit: 200, offset: 0 });
+      if (!response.ok || !response.data) {
+        setConversations([]);
+        return;
+      }
+
+      const raw = (response.data as any).conversations ?? response.data;
+      const convos = Array.isArray(raw) ? raw : [];
       setConversations(convos);
+    } catch (e) {
+      console.error('[DeveloperPortal] fetchConversations error:', e);
+      setConversations([]);
     }
   }, [user?.id]);
 
@@ -171,33 +179,35 @@ export default function DeveloperPortal() {
       return;
     }
 
-    // Find an API key with chat:read scope
-    const apiKey = apiKeys.find(k => k.is_active && k.scopes?.includes('chat:read'));
-    if (!apiKey) {
-      toast.error("Bạn cần tạo API key với scope 'chat:read' trước");
+    // Developer portal does not store API key secrets after creation.
+    // User must paste `fc_live_...`/`fc_test_...` here (or use the just-created one).
+    const apiKeySecret = widgetApiKeySecret.trim() || createdKey?.trim();
+    if (!apiKeySecret) {
+      toast.error("Vui lòng nhập API key secret (fc_live_... / fc_test_...)");
       return;
     }
 
     setGeneratingToken(true);
     try {
-      const { data, error } = await supabase.functions.invoke('widget-token', {
-        body: {
-          action: 'create',
-          conversation_id: selectedConversation,
-          scopes: ['chat:read', 'chat:write'],
-        },
+      const res = await fetch(`${API_BASE_URL}/widget-token`, {
+        method: 'POST',
         headers: {
-          'x-funchat-key-id': apiKey.id,
-          'x-funchat-user-id': user?.id,
-          'x-funchat-scopes': apiKey.scopes?.join(',') || '',
+          'Content-Type': 'application/json',
+          'x-funchat-api-key': apiKeySecret,
         },
+        body: JSON.stringify({
+          conversation_id: selectedConversation,
+          expires_in_minutes: 60,
+        }),
       });
 
-      if (error || !data?.token) {
-        throw new Error(data?.error || 'Failed to generate token');
+      const json = await res.json().catch(() => null) as any;
+      if (!res.ok || !json?.success || !json?.data?.widget_token) {
+        const msg = json?.error?.message || json?.error || 'Failed to generate token';
+        throw new Error(msg);
       }
 
-      setWidgetToken(data.token);
+      setWidgetToken(json.data.widget_token);
       toast.success("Widget token đã được tạo!");
     } catch (err: any) {
       toast.error(err.message || "Lỗi tạo widget token");
@@ -240,7 +250,7 @@ export default function DeveloperPortal() {
       </header>
 
       <div className="container max-w-6xl mx-auto p-4">
-        <Tabs defaultValue="api-keys" className="space-y-4">
+        <Tabs defaultValue={defaultTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="api-keys"><Key className="h-4 w-4 mr-2" />API Keys</TabsTrigger>
             <TabsTrigger value="widget"><Layout className="h-4 w-4 mr-2" />Widget</TabsTrigger>
@@ -467,6 +477,33 @@ await client.crypto.transfer({ to: userId, amount: 100, currency: 'CAMLY' });`}<
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* API key secret input */}
+                <div className="space-y-2">
+                  <Label>API Key Secret (dùng để tạo widget token)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type={showWidgetApiKey ? "text" : "password"}
+                      value={widgetApiKeySecret}
+                      onChange={(e) => setWidgetApiKeySecret(e.target.value)}
+                      placeholder="fc_live_... / fc_test_..."
+                      className="font-mono"
+                    />
+                    <Button variant="outline" size="icon" onClick={() => setShowWidgetApiKey(!showWidgetApiKey)}>
+                      {showWidgetApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => copyToClipboard(widgetApiKeySecret || createdKey || '')}
+                      disabled={!(widgetApiKeySecret || createdKey)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Portal không thể hiển thị lại API key secret sau khi tạo. Hãy dán secret bạn đã lưu để tạo widget token.
+                  </p>
+                </div>
                 {/* Configuration */}
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
