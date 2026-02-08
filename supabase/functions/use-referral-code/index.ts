@@ -11,31 +11,47 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    // Get user from JWT
+    // Get auth header
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.error('[use-referral-code] Missing authorization header');
       return new Response(
         JSON.stringify({ error: 'Missing authorization header' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    // Use anon key with Authorization header to verify user (standard pattern)
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    // Verify user - DO NOT pass token, let client use header
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
     
     if (authError || !user) {
+      console.error('[use-referral-code] Auth error:', {
+        message: authError?.message,
+        status: authError?.status,
+        hasHeader: !!authHeader
+      });
       return new Response(
-        JSON.stringify({ error: 'Invalid token' }),
+        JSON.stringify({ 
+          error: 'Invalid token',
+          detail: authError?.message || 'Authentication failed'
+        }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const userId = user.id;
+
+    // Use service role for database operations (bypasses RLS)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get code from request body
     const body = await req.json();
@@ -48,7 +64,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('Using referral code:', code, 'by user:', userId);
+    console.log('[use-referral-code] Using code:', code, 'by user:', userId);
 
     // Check if user already used a referral code
     const { data: existingUse } = await supabase
@@ -112,7 +128,7 @@ Deno.serve(async (req) => {
       });
 
     if (insertError) {
-      console.error('Insert error:', insertError);
+      console.error('[use-referral-code] Insert error:', insertError);
       return new Response(
         JSON.stringify({ error: 'Không thể sử dụng mã giới thiệu' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -132,7 +148,7 @@ Deno.serve(async (req) => {
       .eq('id', referralCode.user_id)
       .single();
 
-    console.log('Referral code used successfully');
+    console.log('[use-referral-code] Referral code used successfully');
 
     return new Response(
       JSON.stringify({
@@ -143,7 +159,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('[use-referral-code] Unexpected error:', error);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
