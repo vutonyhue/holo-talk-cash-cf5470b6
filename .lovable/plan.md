@@ -1,90 +1,165 @@
 
-## Mục tiêu
-Sửa lỗi `Edge function returned 401: {"error":"Invalid token"}` ở `supabase/functions/get-referral-code/index.ts` để:
-- Không còn 401 sai (khi user đã đăng nhập hợp lệ)
-- Có log/diagnostic rõ ràng nếu token thật sự sai/expired
-- Đồng bộ cách verify JWT giống các function đang hoạt động (ví dụ `api-keys`)
+# Kế hoạch Fix: Cập nhật API Gateway URL + Sửa lỗi không tạo được cuộc trò chuyện
+
+## Tóm tắt vấn đề
+
+### 1. API Gateway URL cần cập nhật
+- URL hiện tại (fallback): `https://funchat-api-gateway.lequangvu2210-hue.workers.dev`
+- URL mới (prod): `https://funchat-api-gateway-prod.lequangvu2210-hue.workers.dev`
+- Cần hỗ trợ URL khác nhau cho Preview và Published
+
+### 2. Lỗi "Conversation not found" (đã xác định nguyên nhân gốc)
+
+**Phát hiện quan trọng từ database:**
+- User `a9bdd8f9-...` có 29 bản ghi trong `conversation_members`
+- Các conversation được tạo thành công (có data trong DB)
+- Nhưng API `GET /api-chat/conversations` trả về `conversations: [], total: 0`
+
+**Nguyên nhân:** Edge Function `api-chat` sử dụng Supabase Service Role Key để query, nhưng **RLS vẫn đang filter dựa trên `auth.uid()`** vì query được thực hiện qua REST API với Service Key (không bypass RLS như trong SQL function).
+
+**Bằng chứng:**
+- Khi gọi trực tiếp Edge Function với header `x-funchat-user-id`, query vẫn dùng `userId` từ header nhưng RLS policy check `auth.uid()` = NULL (vì không có JWT context)
+- Do đó `conversation_members.where(user_id = userId)` trả về empty
 
 ---
 
-## Chẩn đoán nhanh (vì sao đang 401 “Invalid token”)
-Hiện `get-referral-code` đang:
-1) Đọc `Authorization` header
-2) Tách token bằng `authHeader.replace('Bearer ', '')` (case-sensitive)
-3) Tạo client bằng `SUPABASE_ANON_KEY` nhưng lại gọi `supabaseAuth.auth.getUser(token)` với token đã tách
+## Chi tiết các thay đổi
 
-Các điểm dễ gây lỗi:
-- **Token parsing không robust**: nếu header là `bearer <token>` (lowercase) hoặc có extra spaces, `replace('Bearer ', '')` không cắt đúng → token truyền vào `getUser(token)` bị sai → 401.
-- **Không cần parse token**: Supabase JS v2 có pattern chuẩn là set `global.headers.Authorization` và gọi `auth.getUser()` **không truyền token**, giống như `supabase/functions/api-keys/index.ts` đang làm.
-- Nếu môi trường thiếu `SUPABASE_ANON_KEY` (hoặc đọc sai), request đến Auth API sẽ fail; hiện code dùng `?? ''` nên lỗi sẽ “mơ hồ” và bị quy về “Invalid token”.
+### Phần 1: Cập nhật API Gateway URL
 
----
+**File:** `src/config/workerUrls.ts`
 
-## Việc sẽ làm (code changes)
+```typescript
+// Sử dụng URL khác nhau cho từng môi trường
+const isProduction = window.location.hostname === 'holo-talk-cash.lovable.app';
 
-### 1) Sửa `get-referral-code` theo pattern chuẩn (không parse token)
-**File:** `supabase/functions/get-referral-code/index.ts`
+export const API_BASE_URL = getViteEnv(
+  "VITE_API_BASE_URL",
+  isProduction 
+    ? "https://funchat-api-gateway-prod.lequangvu2210-hue.workers.dev"
+    : "https://funchat-api-gateway.lequangvu2210-hue.workers.dev"
+);
+```
 
-Thay đổi chính:
-- Lấy env theo kiểu “bắt buộc có”, giống `api-keys`:
-  - `const supabaseUrl = Deno.env.get('SUPABASE_URL')!;`
-  - `const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;`
-- Tạo `supabaseAuth` bằng anon key + Authorization header:
-  - `createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: authHeader }}})`
-- Verify user bằng:
-  - `const { data: { user }, error } = await supabaseAuth.auth.getUser();`  (không truyền token)
-- Nếu lỗi: log chi tiết `authError?.message` + `authError?.status` (không log token), trả 401.
-
-Lý do: tránh mọi sai lệch do parsing, và đúng chuẩn Supabase.
+Hoặc đơn giản hóa bằng cách dùng prod URL làm fallback duy nhất nếu muốn thống nhất.
 
 ---
 
-### 2) Sửa luôn `use-referral-code` (đang dùng service role để verify JWT — rất dễ fail tương tự)
-**File:** `supabase/functions/use-referral-code/index.ts`
+### Phần 2: Fix Backend - Edge Function api-chat
 
-Hiện tại function này vẫn làm:
-- `createClient(..., SERVICE_ROLE_KEY)` rồi `supabase.auth.getUser(token)`  
-Cách này rất “dễ hỏng” và không đúng pattern an toàn.
+**Vấn đề:** Supabase client với Service Role Key qua REST API vẫn bị RLS filter khi policy dùng `auth.uid()`.
 
-Sửa tương tự:
-- Dùng **anon client** để `auth.getUser()` xác thực JWT từ header
-- Dùng **service role client** chỉ cho thao tác DB (insert/update)
+**Giải pháp:** Thêm `.rpc()` call hoặc sử dụng `.from().select()` với raw SQL bypass, hoặc đơn giản hơn: **đảm bảo query không phụ thuộc RLS**.
 
-Kết quả: cả “lấy code” và “dùng code” đều ổn định.
+**File:** `supabase/functions/api-chat/index.ts`
 
----
+**Thay đổi chính:**
+1. Tạo Supabase client với Service Role Key và thêm header `Prefer: return=representation`
+2. Sử dụng `supabaseAdmin` client thay vì client thông thường
+3. Đảm bảo queries bypass RLS bằng cách:
+   - Dùng service role client với `Authorization: Bearer <SERVICE_ROLE_KEY>`
+   - Không dùng `.auth.getUser()` vì không cần JWT validation (đã validate ở Worker)
 
-### 3) Nâng chất lượng debug (để lần sau không bị “lineno 0” mơ hồ)
-Trong cả 2 functions:
-- Khi auth fail, log:
-  - `Auth error message/status/name`
-  - Có/không có Authorization header
-  - Không bao giờ log token
-- Trả response JSON có cấu trúc rõ hơn (vẫn giữ 401) ví dụ:
-  - `{ error: "Invalid token", detail: "JWT expired" }` (detail chỉ khi có, không chứa thông tin nhạy cảm)
+```typescript
+// Thay đổi cách tạo client
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  global: { headers: { 'Prefer': 'return=representation' } }
+});
+```
 
----
+Với Service Role Key, RLS sẽ bị bypass hoàn toàn. Cần verify rằng client được khởi tạo đúng cách.
 
-## Kiểm thử sau khi sửa (end-to-end)
-1) Đăng nhập user trên preview
-2) Mở trang Rewards/Referral (nơi gọi `useReferral().getReferralCode()`)
-3) Quan sát:
-   - Không còn 401
-   - Referral code hiện ra bình thường
-4) Thử “Use referral code” (nếu UI có):
-   - Không còn 401 “Invalid token”
-5) Nếu vẫn lỗi:
-   - Mở Supabase Dashboard → Edge Function logs để xem `authError` chi tiết (sẽ có log mới)
+**Debug thêm:** Thêm logging để xem query có trả về data không:
 
----
-
-## Tiêu chí hoàn thành
-- `get-referral-code` không còn trả 401 khi user đăng nhập hợp lệ
-- `use-referral-code` cũng không còn 401 do auth verify sai
-- Log hiển thị rõ nguyên nhân khi token thật sự invalid/expired/missing header
+```typescript
+console.log('[api-chat] Fetching conversations for userId:', userId);
+const { data: memberData, error: memberError } = await supabase
+  .from('conversation_members')
+  .select('conversation_id')
+  .eq('user_id', userId);
+console.log('[api-chat] memberData:', memberData, 'error:', memberError);
+```
 
 ---
 
-## Files sẽ chỉnh
-- `supabase/functions/get-referral-code/index.ts`
-- `supabase/functions/use-referral-code/index.ts`
+### Phần 3: Frontend fallback (đã có, cần cải thiện)
+
+**File:** `src/pages/Chat.tsx`
+
+Fallback đã được implement nhưng cũng bị lỗi vì gọi cùng API `GET /conversations/:id` cũng trả về 404.
+
+**Cải thiện:** Khi tạo conversation thành công, lưu trực tiếp response vào state thay vì fetch lại:
+
+```typescript
+// Trong handleNewChat
+const result = await createConversation(memberIds, name, isGroup);
+if (result.data?.id) {
+  // Inject conversation vào local state ngay lập tức
+  // thay vì chờ fetchConversations()
+  setFallbackConversation(result.data as Conversation);
+  setSelectedConversationId(result.data.id);
+}
+```
+
+---
+
+## Files cần sửa
+
+| File | Thay đổi |
+|------|----------|
+| `src/config/workerUrls.ts` | Cập nhật fallback URL sang prod, hỗ trợ env-based switching |
+| `supabase/functions/api-chat/index.ts` | Thêm logging, verify Service Role bypass RLS |
+| `src/pages/Chat.tsx` | Inject conversation data ngay khi tạo thành công |
+| `src/hooks/useConversations.tsx` | Trả về full conversation data từ create response |
+
+---
+
+## Luồng sau khi fix
+
+1. User chọn người để chat → `createConversation()` gọi API
+2. API `POST /v1/conversations` trả về `{ok:true, data:{id:"...", ...}}`
+3. **NEW:** `createConversation` trả về full conversation object
+4. **NEW:** `handleNewChat` inject conversation vào fallback state ngay lập tức
+5. `selectedConversationId` được set → ChatWindow render ngay với fallback data
+6. `fetchConversations()` chạy background, khi có data sẽ replace fallback
+
+---
+
+## Kiểm thử sau khi fix
+
+1. Vào `/chat` trên cả Preview và Published
+2. Bấm "+" → tìm user → chọn
+3. Dialog đóng ngay, ChatWindow mở được
+4. Có thể gửi tin nhắn
+5. Reload trang → conversation xuất hiện trong list
+
+---
+
+## Kỹ thuật chi tiết
+
+### Tại sao RLS vẫn filter dù dùng Service Role Key?
+
+Supabase Service Role Key bypass RLS **chỉ khi** client được tạo đúng cách. Nếu có bất kỳ config nào làm client tạo session hoặc attach JWT, RLS sẽ apply.
+
+**Verify bằng cách thêm log:**
+```typescript
+console.log('[api-chat] Using service role:', !!supabaseServiceKey);
+console.log('[api-chat] Client auth:', await supabase.auth.getSession());
+```
+
+Nếu `getSession()` trả về session khác null → client đang dùng JWT context → RLS apply.
+
+### Giải pháp triệt để
+
+Tạo fresh client cho mỗi request:
+
+```typescript
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false
+  }
+});
+```
