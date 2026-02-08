@@ -19,6 +19,16 @@ export interface CallSession {
   ended_at: string | null;
 }
 
+export interface CallHistoryItem extends CallSession {
+  conversation?: { id: string; name: string | null; is_group: boolean } | null;
+  caller?: { id: string; username: string; display_name: string | null; avatar_url: string | null } | null;
+}
+
+export interface CallHistoryResponse {
+  calls: CallHistoryItem[];
+  total: number;
+}
+
 export interface StartCallRequest {
   conversation_id: string;
   call_type: 'video' | 'voice';
@@ -37,6 +47,17 @@ export interface CallMessageRequest {
 
 export function createCallsApi(client: ApiClient) {
   return {
+    /**
+     * Get call history for current user
+     */
+    async history(limit = 50, offset = 0): Promise<ApiResponse<CallHistoryResponse>> {
+      const queryParams = new URLSearchParams({
+        limit: limit.toString(),
+        offset: offset.toString(),
+      });
+      return client.get<CallHistoryResponse>(`/v1/calls/history?${queryParams.toString()}`);
+    },
+
     /**
      * Start a new call
      */

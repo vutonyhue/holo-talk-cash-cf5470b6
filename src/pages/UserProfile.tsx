@@ -1,21 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
+import { api } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ArrowLeft, MessageCircle, Loader2 } from 'lucide-react';
-import { Profile } from '@/types';
 import { toast } from 'sonner';
+
+interface PublicUserProfile {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  status: string | null;
+  last_seen: string | null;
+}
 
 export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { createConversation } = useConversations();
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<PublicUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [startingChat, setStartingChat] = useState(false);
 
@@ -23,14 +31,16 @@ export default function UserProfile() {
     const fetchProfile = async () => {
       if (!userId) return;
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (!error && data) {
-        setProfile(data as Profile);
+      try {
+        const res = await api.users.getProfile(userId);
+        if (res.ok && res.data) {
+          setProfile(res.data as PublicUserProfile);
+        } else {
+          setProfile(null);
+        }
+      } catch (err) {
+        if (import.meta.env.DEV) console.error('[UserProfile] fetchProfile error', err);
+        setProfile(null);
       }
       setLoading(false);
     };
@@ -117,11 +127,7 @@ export default function UserProfile() {
                 <p className="text-sm text-muted-foreground">{profile.status}</p>
               )}
 
-              {profile.wallet_address && (
-                <p className="text-xs text-muted-foreground font-mono truncate px-4">
-                  {profile.wallet_address}
-                </p>
-              )}
+              {/* wallet_address is intentionally not shown here because this page uses the API Gateway public profile. */}
             </div>
 
             {/* Action Button */}

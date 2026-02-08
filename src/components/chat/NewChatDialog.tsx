@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { Profile } from '@/types';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -17,6 +16,14 @@ import {
 import { Search, Users, Loader2, UsersRound, X, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
+interface UserSearchProfile {
+  id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  status?: string | null;
+}
+
 interface CreateConversationResult {
   data: { id: string } | null;
   error: Error | null;
@@ -31,46 +38,55 @@ interface NewChatDialogProps {
 export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialogProps) {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [users, setUsers] = useState<UserSearchProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [creatingUserId, setCreatingUserId] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
   
   // Group chat states
   const [mode, setMode] = useState<'direct' | 'group'>('direct');
-  const [selectedUsers, setSelectedUsers] = useState<Profile[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<UserSearchProfile[]>([]);
   const [groupName, setGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
   const isBusy = loading || creatingGroup || creatingUserId !== null;
 
   useEffect(() => {
-    if (open) {
-      searchUsers();
-    }
-  }, [open, searchQuery]);
+    if (!open) return;
 
-  const searchUsers = async () => {
-    if (!user) return;
-    
-    setLoading(true);
-    
-    let query = supabase
-      .from('profiles')
-      .select('*')
-      .neq('id', user.id)
-      .limit(20);
-
-    if (searchQuery) {
-      query = query.or(`username.ilike.%${searchQuery}%,display_name.ilike.%${searchQuery}%`);
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) {
+      setUsers([]);
+      setLoading(false);
+      return;
     }
 
-    const { data, error } = await query;
+    const timer = window.setTimeout(async () => {
+      const seq = ++requestSeqRef.current;
+      setLoading(true);
+      try {
+        const res = await api.users.search(trimmed, 20);
+        if (seq !== requestSeqRef.current) return;
 
-    if (!error && data) {
-      setUsers(data as Profile[]);
-    }
-    
-    setLoading(false);
-  };
+        if (!res.ok) {
+          toast.error(res.error?.message || 'Khong the tim nguoi dung');
+          setUsers([]);
+          return;
+        }
+
+        const results = (res.data?.users as UserSearchProfile[]) || [];
+        setUsers(user?.id ? results.filter(u => u.id !== user.id) : results);
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.error('[NewChatDialog] Search error:', err);
+        }
+        setUsers([]);
+      } finally {
+        if (seq === requestSeqRef.current) setLoading(false);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [open, searchQuery, user?.id]);
 
   const handleDirectChat = async (userId: string) => {
     setCreatingUserId(userId);
@@ -97,7 +113,7 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
     }
   };
 
-  const toggleUserSelection = (userItem: Profile) => {
+  const toggleUserSelection = (userItem: UserSearchProfile) => {
     setSelectedUsers(prev => {
       const isSelected = prev.some(u => u.id === userItem.id);
       if (isSelected) {
@@ -211,7 +227,7 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
                   variant="secondary" 
                   className="flex items-center gap-1 pr-1 rounded-full"
                 >
-                  {u.display_name}
+                  {u.display_name || u.username}
                   <button 
                     onClick={() => removeSelectedUser(u.id)}
                     className="ml-1 hover:bg-muted rounded-full p-0.5"

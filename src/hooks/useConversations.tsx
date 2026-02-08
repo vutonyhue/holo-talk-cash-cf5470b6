@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { Conversation, Message, Profile } from '@/types';
 import { api } from '@/lib/api';
@@ -28,15 +27,21 @@ export function useConversations() {
       // Use API client instead of direct Supabase call
       const response = await api.conversations.list();
 
-      if (!response.ok || !response.data) {
+      if (!response.ok) {
         console.error('[useConversations] Error fetching:', response.error);
-        setLoading(false);
+        setConversations([]);
+        return;
+      }
+
+      if (!response.data) {
+        // Treat null/undefined as empty state (e.g. backend returns { ok:true, data:null })
+        setConversations([]);
         return;
       }
 
       // Transform API response to Conversation type
       // Handle both wrapped format { conversations: [...] } and raw array [...]
-      const rawConversations = response.data.conversations || response.data;
+      const rawConversations = (response.data as any).conversations || response.data;
       const conversationsArray = Array.isArray(rawConversations) ? rawConversations : [];
       
       const conversationsWithDetails = conversationsArray.map(conv => ({
@@ -57,7 +62,9 @@ export function useConversations() {
   };
 
   const createConversation = async (memberIds: string[], name?: string, isGroup = false) => {
-    console.log('[createConversation] Starting:', { memberIds, name, isGroup, hasUser: !!user, userId: user?.id });
+    if (import.meta.env.DEV) {
+      console.log('[createConversation] Starting:', { memberIds, name, isGroup, hasUser: !!user, userId: user?.id });
+    }
 
     if (!user) {
       console.error('[createConversation] No user logged in');
@@ -67,7 +74,9 @@ export function useConversations() {
     // For 1-on-1 chats, check if conversation already exists in local state
     if (!isGroup && memberIds.length === 1) {
       const otherUserId = memberIds[0];
-      console.log('[createConversation] Checking for existing 1-on-1 conversation with:', otherUserId);
+      if (import.meta.env.DEV) {
+        console.log('[createConversation] Checking for existing 1-on-1 conversation with:', otherUserId);
+      }
       
       const existingConv = conversations.find(conv => {
         if (conv.is_group) return false;
@@ -78,40 +87,44 @@ export function useConversations() {
       });
       
       if (existingConv) {
-        console.log('[createConversation] Found existing conversation in local state:', existingConv.id);
+        if (import.meta.env.DEV) {
+          console.log('[createConversation] Found existing conversation in local state:', existingConv.id);
+        }
         return { data: existingConv, error: null };
       }
 
       // Check for existing direct conversation via API
       try {
-        console.log('[createConversation] Checking via API findDirectConversation...');
-        const findResponse = await api.conversations.findDirectConversation(otherUserId);
-        console.log('[createConversation] findDirectConversation response:', findResponse);
         if (import.meta.env.DEV) {
-          console.log('findResponse', findResponse);
-          console.log('findResponse.data', findResponse.data);
+          console.log('[createConversation] Checking via API findDirectConversation...');
         }
+        const findResponse = await api.conversations.findDirectConversation(otherUserId);
+        if (import.meta.env.DEV) console.log('[createConversation] findDirectConversation response:', findResponse);
 
         if (findResponse.ok && findResponse.data?.id) {
           await fetchConversations();
           return { data: findResponse.data, error: null };
         }
-        console.log('[createConversation] No existing conversation found, will create new one');
+        if (import.meta.env.DEV) {
+          console.log('[createConversation] No existing conversation found, will create new one');
+        }
       } catch (e) {
-        console.log('[createConversation] findDirectConversation error (will continue to create):', e);
+        if (import.meta.env.DEV) {
+          console.log('[createConversation] findDirectConversation error (will continue to create):', e);
+        }
         // Continue to create new conversation
       }
     }
 
     // Create new conversation via API
     try {
-      console.log('[createConversation] Creating new conversation via API...');
+      if (import.meta.env.DEV) console.log('[createConversation] Creating new conversation via API...');
       const response = await api.conversations.create({
         member_ids: memberIds,
         name: isGroup ? name : undefined,
         is_group: isGroup,
       });
-      console.log('[createConversation] Create response:', response);
+      if (import.meta.env.DEV) console.log('[createConversation] Create response:', response);
 
       if (!response.ok) {
         console.error('[createConversation] API error:', response.error);

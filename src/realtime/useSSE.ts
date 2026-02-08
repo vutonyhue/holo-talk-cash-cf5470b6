@@ -64,7 +64,7 @@ export function useSSE(
       });
 
       eventSource.onopen = () => {
-        console.log('[SSE] Connected to stream:', conversationId);
+        if (import.meta.env.DEV) console.log('[SSE] Connected to stream:', conversationId);
         setIsConnected(true);
         setIsReconnecting(false);
         reconnectAttemptsRef.current = 0;
@@ -75,9 +75,9 @@ export function useSSE(
       eventSource.addEventListener('connected', (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[SSE] Stream connected:', data);
+          if (import.meta.env.DEV) console.log('[SSE] Stream connected:', data);
         } catch (e) {
-          console.error('[SSE] Failed to parse connected event:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse connected event:', e);
         }
       });
 
@@ -87,7 +87,7 @@ export function useSSE(
           const message = JSON.parse(event.data) as MessageEventData;
           optionsRef.current.onMessage?.(message);
         } catch (e) {
-          console.error('[SSE] Failed to parse message:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse message:', e);
         }
       });
 
@@ -97,7 +97,7 @@ export function useSSE(
           const message = JSON.parse(event.data) as MessageEventData;
           optionsRef.current.onMessageUpdate?.(message);
         } catch (e) {
-          console.error('[SSE] Failed to parse message update:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse message update:', e);
         }
       });
 
@@ -107,7 +107,7 @@ export function useSSE(
           const message = JSON.parse(event.data) as MessageEventData;
           optionsRef.current.onMessageDelete?.(message);
         } catch (e) {
-          console.error('[SSE] Failed to parse message delete:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse message delete:', e);
         }
       });
 
@@ -117,7 +117,7 @@ export function useSSE(
           const users = JSON.parse(event.data) as TypingEventData[];
           optionsRef.current.onTyping?.(users);
         } catch (e) {
-          console.error('[SSE] Failed to parse typing event:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse typing event:', e);
         }
       });
 
@@ -127,7 +127,7 @@ export function useSSE(
           const reaction = JSON.parse(event.data) as ReactionEventData;
           optionsRef.current.onReactionAdded?.(reaction);
         } catch (e) {
-          console.error('[SSE] Failed to parse reaction:added event:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse reaction:added event:', e);
         }
       });
 
@@ -137,7 +137,7 @@ export function useSSE(
           const reaction = JSON.parse(event.data) as ReactionEventData;
           optionsRef.current.onReactionRemoved?.(reaction);
         } catch (e) {
-          console.error('[SSE] Failed to parse reaction:removed event:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse reaction:removed event:', e);
         }
       });
 
@@ -147,20 +147,20 @@ export function useSSE(
           const receipt = JSON.parse(event.data) as ReadReceiptEventData;
           optionsRef.current.onReadReceipt?.(receipt);
         } catch (e) {
-          console.error('[SSE] Failed to parse read_receipt event:', e);
+          if (import.meta.env.DEV) console.error('[SSE] Failed to parse read_receipt event:', e);
         }
       });
 
       // Handle close event
       eventSource.addEventListener('close', () => {
-        console.log('[SSE] Stream closed by server');
+        if (import.meta.env.DEV) console.log('[SSE] Stream closed by server');
         disconnect();
         // Server closed connection, try to reconnect
         scheduleReconnect();
       });
 
       eventSource.onerror = () => {
-        console.error('[SSE] Connection error');
+        if (import.meta.env.DEV) console.error('[SSE] Connection error');
         setIsConnected(false);
         
         // EventSource auto-reconnects, but we track state
@@ -173,7 +173,7 @@ export function useSSE(
 
       eventSourceRef.current = eventSource;
     } catch (error) {
-      console.error('[SSE] Failed to create connection:', error);
+      if (import.meta.env.DEV) console.error('[SSE] Failed to create connection:', error);
       optionsRef.current.onError?.(error as Error);
       scheduleReconnect();
     }
@@ -181,7 +181,7 @@ export function useSSE(
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('[SSE] Max reconnect attempts reached');
+      if (import.meta.env.DEV) console.log('[SSE] Max reconnect attempts reached');
       optionsRef.current.onError?.(new Error('Max reconnection attempts reached'));
       setIsReconnecting(false);
       return;
@@ -192,7 +192,7 @@ export function useSSE(
 
     // Exponential backoff
     const delay = BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttemptsRef.current - 1);
-    console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+    if (import.meta.env.DEV) console.log(`[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
 
     reconnectTimeoutRef.current = window.setTimeout(() => {
       connect();

@@ -186,9 +186,13 @@ export default function Chat() {
   };
 
   const handleNewChat = async (memberIds: string[], name?: string, isGroup?: boolean): Promise<{ data: { id: string } | null; error: Error | null }> => {
-    console.log('[handleNewChat] Called:', { memberIds, name, isGroup });
+    if (import.meta.env.DEV) {
+      console.log('[handleNewChat] Called:', { memberIds, name, isGroup });
+    }
     const result = await createConversation(memberIds, name, isGroup);
-    console.log('[handleNewChat] Result:', result);
+    if (import.meta.env.DEV) {
+      console.log('[handleNewChat] Result:', result);
+    }
     
     // Normalize the result to always have consistent shape
     const normalizedResult = {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,6 +49,12 @@ interface CallRecord {
       } | null;
     }>;
   } | null;
+  caller?: {
+    id: string;
+    username: string;
+    display_name: string | null;
+    avatar_url: string | null;
+  } | null;
 }
 
 interface CallHistoryProps {
@@ -78,70 +84,91 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     const fetchCalls = async () => {
       if (!profile?.id) return;
 
-      const { data, error } = await supabase
-        .from('call_sessions')
-        .select(`
-          id,
-          call_type,
-          caller_id,
-          status,
-          created_at,
-          started_at,
-          ended_at,
-          conversation_id
-        `)
-        .order('created_at', { ascending: false })
-        .limit(50);
+      setLoading(true);
 
-      if (!error && data) {
-        // Fetch conversation details separately
-        const callsWithConversations = await Promise.all(
-          data.map(async (call) => {
-            const { data: convData } = await supabase
-              .from('conversations')
-              .select(`
-                id,
-                name,
-                is_group
-              `)
-              .eq('id', call.conversation_id)
-              .single();
+      try {
+        const historyRes = await api.calls.history(50, 0);
+        if (!historyRes.ok) {
+          toast.error(historyRes.error?.message || 'Khong the tai lich su cuoc goi');
+          setCalls([]);
+          return;
+        }
 
-            const { data: membersData } = await supabase
-              .from('conversation_members')
-              .select('user_id')
-              .eq('conversation_id', call.conversation_id);
+        const rawCalls = historyRes.data?.calls || [];
+        const uniqueConversationIds = Array.from(
+          new Set(rawCalls.map((c: any) => c.conversation_id).filter(Boolean))
+        ) as string[];
 
-            let members: CallRecord['conversation']['members'] = [];
-            if (membersData) {
-              const profilesPromises = membersData.map(async (m) => {
-                const { data: profileData } = await supabase
-                  .from('profiles')
-                  .select('id, username, display_name, avatar_url, phone_number')
-                  .eq('id', m.user_id)
-                  .single();
-                return {
-                  user_id: m.user_id,
-                  profile: profileData
-                };
-              });
-              members = await Promise.all(profilesPromises);
+        const convMap = new Map<string, any>();
+        await Promise.all(
+          uniqueConversationIds.map(async (conversationId) => {
+            const convRes = await api.conversations.get(conversationId);
+            if (convRes.ok && convRes.data) {
+              convMap.set(conversationId, convRes.data);
             }
-
-            return {
-              ...call,
-              call_type: call.call_type as 'video' | 'voice',
-              conversation: convData ? {
-                ...convData,
-                members
-              } : null
-            } as CallRecord;
           })
         );
 
+        const callsWithConversations: CallRecord[] = rawCalls.map((call: any) => {
+          const convId = call.conversation_id as string | undefined;
+          const convDetails = convId ? convMap.get(convId) : null;
+
+          const members =
+            convDetails?.members?.map((m: any) => ({
+              user_id: m.user_id,
+              profile: m.profile
+                ? {
+                    id: m.profile.id,
+                    username: m.profile.username,
+                    display_name: m.profile.display_name ?? null,
+                    avatar_url: m.profile.avatar_url ?? null,
+                  }
+                : null,
+            })) || [];
+
+          const conversation = convDetails
+            ? {
+                id: convDetails.id,
+                name: convDetails.name ?? null,
+                is_group: !!convDetails.is_group,
+                members,
+              }
+            : call.conversation
+              ? {
+                  id: call.conversation.id,
+                  name: call.conversation.name ?? null,
+                  is_group: !!call.conversation.is_group,
+                  members: [],
+                }
+              : null;
+
+          return {
+            id: call.id,
+            call_type: call.call_type as 'video' | 'voice',
+            caller_id: call.caller_id,
+            status: call.status,
+            created_at: call.created_at,
+            started_at: call.started_at ?? null,
+            ended_at: call.ended_at ?? null,
+            conversation,
+            caller: call.caller
+              ? {
+                  id: call.caller.id,
+                  username: call.caller.username,
+                  display_name: call.caller.display_name ?? null,
+                  avatar_url: call.caller.avatar_url ?? null,
+                }
+              : null,
+          };
+        });
+
         setCalls(callsWithConversations);
+      } catch (err) {
+        if (import.meta.env.DEV) console.error('[CallHistory] fetchCalls error', err);
+        setCalls([]);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchCalls();
@@ -172,7 +199,12 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
 
   const getContactInfo = (call: CallRecord) => {
     if (!call.conversation) {
-      return { name: 'Unknown', avatar: undefined, phone: undefined };
+      // Fallback: use caller (incoming calls) if available.
+      const fallback =
+        call.caller && call.caller.id !== profile?.id
+          ? call.caller
+          : null;
+      return { name: fallback?.display_name || fallback?.username || 'Unknown', avatar: fallback?.avatar_url, phone: undefined };
     }
 
     if (call.conversation.is_group) {
@@ -285,44 +317,21 @@ export default function CallHistory({ onStartCall }: CallHistoryProps) {
     setIsConnecting(true);
     
     try {
-      // Find or create conversation with this user
-      const { data: existingConv } = await supabase
-        .from('conversations')
-        .select(`
-          id,
-          conversation_members!inner(user_id)
-        `)
-        .eq('is_group', false)
-        .eq('conversation_members.user_id', foundProfile.id)
-        .limit(1)
-        .single();
-
       let conversationId: string;
 
-      if (existingConv) {
-        conversationId = existingConv.id;
+      const findResponse = await api.conversations.findDirectConversation(foundProfile.id);
+      if (findResponse.ok && findResponse.data?.id) {
+        conversationId = findResponse.data.id;
       } else {
-        // Create new conversation
-        const { data: newConv, error: convError } = await supabase
-          .from('conversations')
-          .insert({
-            is_group: false,
-            created_by: profile?.id
-          })
-          .select()
-          .single();
+        const createResponse = await api.conversations.create({
+          member_ids: [foundProfile.id],
+          is_group: false,
+        });
 
-        if (convError) throw convError;
-
-        // Add both members
-        await supabase
-          .from('conversation_members')
-          .insert([
-            { conversation_id: newConv.id, user_id: profile?.id },
-            { conversation_id: newConv.id, user_id: foundProfile.id }
-          ]);
-
-        conversationId = newConv.id;
+        if (!createResponse.ok || !createResponse.data?.id) {
+          throw new Error(createResponse.error?.message || 'Failed to create conversation');
+        }
+        conversationId = createResponse.data.id;
       }
 
       // Start the call

@@ -8,7 +8,6 @@ import { ApiResponse, ProfileResponse } from '../types';
 
 export interface UserSearchResponse {
   users: ProfileResponse[];
-  total: number;
 }
 
 export function createUsersApi(client: ApiClient) {
