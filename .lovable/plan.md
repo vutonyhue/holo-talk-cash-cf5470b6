@@ -1,128 +1,90 @@
 
-## Kế hoạch Fix: Chat Window không mở được sau khi tạo cuộc trò chuyện
-
-### Nguyên nhân gốc rễ (đã xác định qua log)
-
-**Timeline của lỗi:**
-1. User bấm chọn người → `handleDirectChat()` gọi `onCreate()`
-2. API `POST /v1/conversations` → trả về `{ok:true, data:{id:"..."}}`  ✅
-3. `handleNewChat()` nhận được `result.data.id` → `setSelectedConversationId(id)` ✅
-4. `fetchConversations()` được gọi
-5. API `GET /v1/conversations` → **trả về `{conversations:[], total:0}`** ❌
-6. `conversations` state = rỗng
-7. `selectedConversation = conversations.find(c => c.id === selectedConversationId)` = **null**
-8. UI check `if (selectedConversation)` = false → **không render ChatWindow**
-9. Dialog đóng nhưng user thấy màn hình welcome, không phải chat
-
-**Bằng chứng từ log:**
-```
-Response Body: {"ok":true,"data":{"conversations":[],"total":0}}
-```
-
-### Giải pháp: Fallback fetch conversation by ID
-
-Khi `selectedConversationId` có giá trị nhưng không tìm thấy trong `conversations` list, **frontend sẽ tự fetch conversation đó bằng ID** và sử dụng làm fallback.
+## Mục tiêu
+Sửa lỗi `Edge function returned 401: {"error":"Invalid token"}` ở `supabase/functions/get-referral-code/index.ts` để:
+- Không còn 401 sai (khi user đã đăng nhập hợp lệ)
+- Có log/diagnostic rõ ràng nếu token thật sự sai/expired
+- Đồng bộ cách verify JWT giống các function đang hoạt động (ví dụ `api-keys`)
 
 ---
 
-### Chi tiết thay đổi
+## Chẩn đoán nhanh (vì sao đang 401 “Invalid token”)
+Hiện `get-referral-code` đang:
+1) Đọc `Authorization` header
+2) Tách token bằng `authHeader.replace('Bearer ', '')` (case-sensitive)
+3) Tạo client bằng `SUPABASE_ANON_KEY` nhưng lại gọi `supabaseAuth.auth.getUser(token)` với token đã tách
 
-#### 1. `src/pages/Chat.tsx` - Thêm fallback conversation state và logic
-
-**Thêm state mới:**
-```typescript
-const [fallbackConversation, setFallbackConversation] = useState<Conversation | null>(null);
-```
-
-**Thêm useEffect để fetch fallback:**
-```typescript
-useEffect(() => {
-  // Nếu có selectedConversationId nhưng không tìm thấy trong list
-  if (selectedConversationId && !conversations.find(c => c.id === selectedConversationId)) {
-    // Fetch conversation by ID as fallback
-    api.conversations.get(selectedConversationId).then(response => {
-      if (response.ok && response.data) {
-        setFallbackConversation(response.data as Conversation);
-      }
-    });
-  } else {
-    setFallbackConversation(null);
-  }
-}, [selectedConversationId, conversations]);
-```
-
-**Cập nhật logic derive `selectedConversation`:**
-```typescript
-// Ưu tiên từ list, fallback từ fetch trực tiếp
-const selectedConversation = selectedConversationId 
-  ? conversations.find(c => c.id === selectedConversationId) || fallbackConversation
-  : null;
-```
+Các điểm dễ gây lỗi:
+- **Token parsing không robust**: nếu header là `bearer <token>` (lowercase) hoặc có extra spaces, `replace('Bearer ', '')` không cắt đúng → token truyền vào `getUser(token)` bị sai → 401.
+- **Không cần parse token**: Supabase JS v2 có pattern chuẩn là set `global.headers.Authorization` và gọi `auth.getUser()` **không truyền token**, giống như `supabase/functions/api-keys/index.ts` đang làm.
+- Nếu môi trường thiếu `SUPABASE_ANON_KEY` (hoặc đọc sai), request đến Auth API sẽ fail; hiện code dùng `?? ''` nên lỗi sẽ “mơ hồ” và bị quy về “Invalid token”.
 
 ---
 
-#### 2. Cải thiện UX: Loading state khi đang fetch fallback
+## Việc sẽ làm (code changes)
 
-Thêm loading indicator nếu:
-- `selectedConversationId` có giá trị
-- `selectedConversation` chưa có (đang fetch)
+### 1) Sửa `get-referral-code` theo pattern chuẩn (không parse token)
+**File:** `supabase/functions/get-referral-code/index.ts`
 
-```typescript
-const [fetchingFallback, setFetchingFallback] = useState(false);
+Thay đổi chính:
+- Lấy env theo kiểu “bắt buộc có”, giống `api-keys`:
+  - `const supabaseUrl = Deno.env.get('SUPABASE_URL')!;`
+  - `const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;`
+- Tạo `supabaseAuth` bằng anon key + Authorization header:
+  - `createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: authHeader }}})`
+- Verify user bằng:
+  - `const { data: { user }, error } = await supabaseAuth.auth.getUser();`  (không truyền token)
+- Nếu lỗi: log chi tiết `authError?.message` + `authError?.status` (không log token), trả 401.
 
-// Trong useEffect fetch fallback:
-setFetchingFallback(true);
-try {
-  const response = await api.conversations.get(selectedConversationId);
-  // ...
-} finally {
-  setFetchingFallback(false);
-}
-```
-
-Trong `renderMainView()`:
-```typescript
-if (selectedConversationId && !selectedConversation && fetchingFallback) {
-  return <LoadingSpinner message="Đang tải cuộc trò chuyện..." />;
-}
-```
+Lý do: tránh mọi sai lệch do parsing, và đúng chuẩn Supabase.
 
 ---
 
-### Luồng sau khi fix
+### 2) Sửa luôn `use-referral-code` (đang dùng service role để verify JWT — rất dễ fail tương tự)
+**File:** `supabase/functions/use-referral-code/index.ts`
 
-1. User bấm chọn người → tạo conversation thành công
-2. `selectedConversationId` được set
-3. `fetchConversations()` trả về rỗng (bug backend)
-4. **NEW:** useEffect phát hiện `selectedConversationId` không có trong list
-5. **NEW:** Gọi `api.conversations.get(id)` để lấy chi tiết
-6. **NEW:** Set `fallbackConversation`
-7. `selectedConversation = fallbackConversation` → có giá trị
-8. `ChatWindow` được render ✅
+Hiện tại function này vẫn làm:
+- `createClient(..., SERVICE_ROLE_KEY)` rồi `supabase.auth.getUser(token)`  
+Cách này rất “dễ hỏng” và không đúng pattern an toàn.
 
----
+Sửa tương tự:
+- Dùng **anon client** để `auth.getUser()` xác thực JWT từ header
+- Dùng **service role client** chỉ cho thao tác DB (insert/update)
 
-### Files thay đổi
-
-| File | Thay đổi |
-|------|----------|
-| `src/pages/Chat.tsx` | Thêm fallback state, useEffect fetch by ID, cập nhật derive logic |
+Kết quả: cả “lấy code” và “dùng code” đều ổn định.
 
 ---
 
-### Lợi ích của giải pháp
-
-1. **Không phụ thuộc backend fix** - Frontend tự xử lý edge case
-2. **Backward compatible** - Nếu backend trả về đúng, fallback không cần dùng
-3. **UX tốt hơn** - User không bị stuck ở màn hình welcome
-4. **Dễ debug** - Log rõ ràng khi nào dùng fallback
+### 3) Nâng chất lượng debug (để lần sau không bị “lineno 0” mơ hồ)
+Trong cả 2 functions:
+- Khi auth fail, log:
+  - `Auth error message/status/name`
+  - Có/không có Authorization header
+  - Không bao giờ log token
+- Trả response JSON có cấu trúc rõ hơn (vẫn giữ 401) ví dụ:
+  - `{ error: "Invalid token", detail: "JWT expired" }` (detail chỉ khi có, không chứa thông tin nhạy cảm)
 
 ---
 
-### Kiểm thử sau khi fix
+## Kiểm thử sau khi sửa (end-to-end)
+1) Đăng nhập user trên preview
+2) Mở trang Rewards/Referral (nơi gọi `useReferral().getReferralCode()`)
+3) Quan sát:
+   - Không còn 401
+   - Referral code hiện ra bình thường
+4) Thử “Use referral code” (nếu UI có):
+   - Không còn 401 “Invalid token”
+5) Nếu vẫn lỗi:
+   - Mở Supabase Dashboard → Edge Function logs để xem `authError` chi tiết (sẽ có log mới)
 
-1. Vào `/chat` → bấm "+" → chọn user
-2. Dialog đóng
-3. **ChatWindow mở được** (dù conversations list rỗng)
-4. Có thể gửi tin nhắn
-5. Reload trang → conversation xuất hiện trong list (nếu backend đã fix)
+---
+
+## Tiêu chí hoàn thành
+- `get-referral-code` không còn trả 401 khi user đăng nhập hợp lệ
+- `use-referral-code` cũng không còn 401 do auth verify sai
+- Log hiển thị rõ nguyên nhân khi token thật sự invalid/expired/missing header
+
+---
+
+## Files sẽ chỉnh
+- `supabase/functions/get-referral-code/index.ts`
+- `supabase/functions/use-referral-code/index.ts`
