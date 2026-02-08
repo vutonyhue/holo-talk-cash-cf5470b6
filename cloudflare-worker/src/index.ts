@@ -259,6 +259,55 @@ function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.includes(pathname);
 }
 
+// ============================================================================
+// Widget Token Support
+// ============================================================================
+
+type WidgetTokenValidateSuccess = {
+  success: true;
+  data: {
+    valid: true;
+    user_id: string;
+    app_id: string;
+    conversation_id: string | null;
+    scopes: string[];
+    expires_at: string;
+  };
+};
+
+type WidgetTokenValidateError = {
+  success: false;
+  error?: { code?: string; message?: string };
+};
+
+async function verifyWidgetToken(token: string, env: Env): Promise<WidgetTokenValidateSuccess['data'] | null> {
+  try {
+    const res = await fetch(`${env.SUPABASE_FUNCTIONS_URL}/widget-token/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+
+    const json = (await res.json().catch(() => null)) as (WidgetTokenValidateSuccess | WidgetTokenValidateError | null);
+    if (!json || typeof json !== 'object') return null;
+
+    if ((json as WidgetTokenValidateSuccess).success === true) {
+      const data = (json as WidgetTokenValidateSuccess).data;
+      if (data?.valid && data.user_id) return data;
+      return null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function extractConversationIdFromPath(pathname: string): string | null {
+  const m = pathname.match(/^\/v1\/conversations\/([^/]+)/);
+  return m ? m[1] : null;
+}
+
 /**
  * Get required scope for endpoint
  */
@@ -940,6 +989,124 @@ async function handleUserRoute(
 }
 
 /**
+ * Handle widget-token authenticated routes.
+ * Widgets must pass `x-funchat-widget-token` header to access a single conversation's chat endpoints.
+ */
+async function handleWidgetRoute(
+  request: Request,
+  env: Env,
+  widgetToken: string,
+  requestId: string,
+  origin: string | null
+): Promise<Response> {
+  const url = new URL(request.url);
+
+  const tokenData = await verifyWidgetToken(widgetToken, env);
+  if (!tokenData) {
+    return errorResponse('UNAUTHORIZED', 'Invalid widget token', 401, requestId, origin || undefined);
+  }
+
+  // For safety: only support conversation-scoped widget tokens.
+  if (!tokenData.conversation_id) {
+    return errorResponse('FORBIDDEN', 'Widget token must be scoped to a conversation', 403, requestId, origin || undefined);
+  }
+
+  const conversationIdInPath = extractConversationIdFromPath(url.pathname);
+  if (!conversationIdInPath || conversationIdInPath !== tokenData.conversation_id) {
+    return errorResponse('FORBIDDEN', 'Widget token cannot access this conversation', 403, requestId, origin || undefined);
+  }
+
+  // Allowlist supported widget routes
+  const cid = tokenData.conversation_id;
+  const isAllowed =
+    (request.method === 'GET' && url.pathname === `/v1/conversations/${cid}`) ||
+    (request.method === 'GET' && url.pathname === `/v1/conversations/${cid}/messages`) ||
+    (request.method === 'POST' && url.pathname === `/v1/conversations/${cid}/messages`);
+
+  if (!isAllowed) {
+    return errorResponse('FORBIDDEN', 'Widget token route not allowed', 403, requestId, origin || undefined);
+  }
+
+  // Map to Supabase Edge Function path.
+  let targetPath = url.pathname;
+  if (targetPath.startsWith('/v1/conversations')) {
+    targetPath = targetPath.replace('/v1/conversations', '/api-chat/conversations');
+  }
+
+  const targetUrl = `${env.SUPABASE_FUNCTIONS_URL}${targetPath}${url.search}`;
+
+  const forwardHeaders = new Headers(request.headers);
+  forwardHeaders.set('x-auth-mode', 'jwt');
+  forwardHeaders.set('x-funchat-user-id', tokenData.user_id);
+  forwardHeaders.set('x-funchat-scopes', tokenData.scopes.join(','));
+  forwardHeaders.set('x-request-id', requestId);
+  forwardHeaders.set('x-funchat-app-id', tokenData.app_id);
+
+  // Never forward widget token to Edge Functions.
+  forwardHeaders.delete('x-funchat-widget-token');
+
+  const forwardRequest = new Request(targetUrl, {
+    method: request.method,
+    headers: forwardHeaders,
+    body: request.body,
+  });
+
+  try {
+    const response = await fetch(forwardRequest);
+
+    const responseHeaders = new Headers(response.headers);
+    if (origin) {
+      responseHeaders.set('Access-Control-Allow-Origin', origin);
+      responseHeaders.set('Access-Control-Allow-Credentials', 'true');
+    } else {
+      responseHeaders.set('Access-Control-Allow-Origin', '*');
+    }
+    responseHeaders.set('X-Request-ID', requestId);
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    console.error('Error forwarding widget request:', error);
+    return errorResponse('INTERNAL_ERROR', 'Failed to process widget request', 500, requestId, origin || undefined);
+  }
+}
+
+async function handleWidgetTokenValidate(
+  request: Request,
+  env: Env,
+  requestId: string,
+  origin: string | null
+): Promise<Response> {
+  try {
+    const body = (await request.json().catch(() => null)) as { token?: string } | null;
+    const token = body?.token;
+    if (!token) return errorResponse('BAD_REQUEST', 'Token is required', 400, requestId, origin || undefined);
+
+    const data = await verifyWidgetToken(token, env);
+    if (!data) return errorResponse('UNAUTHORIZED', 'Invalid or expired widget token', 401, requestId, origin || undefined);
+
+    return successResponse(
+      {
+        valid: true,
+        user_id: data.user_id,
+        app_id: data.app_id,
+        conversation_id: data.conversation_id,
+        scopes: data.scopes,
+        expires_at: data.expires_at,
+      },
+      requestId,
+      origin || undefined
+    );
+  } catch (e) {
+    console.error('Widget token validate error:', e);
+    return errorResponse('INTERNAL_ERROR', 'Failed to validate widget token', 500, requestId, origin || undefined);
+  }
+}
+
+/**
  * Handle API key authenticated routes (for SDK/third-party apps)
  */
 async function handleApiKeyRoute(
@@ -1034,11 +1201,16 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': corsOrigin || '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-funchat-api-key, x-request-id',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-funchat-api-key, x-funchat-widget-token, x-request-id',
           'Access-Control-Max-Age': '86400',
           'Access-Control-Allow-Credentials': 'true',
         },
       });
+    }
+
+    // Public widget token validation (widgets don't have user JWT / API key)
+    if (request.method === 'POST' && url.pathname === '/v1/widget/token/validate') {
+      return handleWidgetTokenValidate(request, env, requestId, origin);
     }
 
     // Health check endpoint
@@ -1053,6 +1225,12 @@ export default {
         requestId,
         origin || undefined
       );
+    }
+
+    // Widget token routes
+    const widgetToken = request.headers.get('x-funchat-widget-token');
+    if (widgetToken) {
+      return handleWidgetRoute(request, env, widgetToken, requestId, origin);
     }
 
     // Check for API key (SDK/third-party apps)

@@ -1,19 +1,26 @@
 /**
  * Widget Messages Hook
- * Simplified message handling for embedded widgets
+ * Simplified message handling for embedded widgets.
+ *
+ * IMPORTANT:
+ * - No direct Supabase DB queries.
+ * - No Supabase Realtime.
+ * - Use API Gateway + widget token header.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import type { Message } from '@/sdk/types/chat';
+import { API_BASE_URL } from '@/config/workerUrls';
 
 interface UseWidgetMessagesResult {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
   sendMessage: (content: string) => Promise<boolean>;
+  refresh: () => Promise<void>;
   loadMore: () => Promise<void>;
   hasMore: boolean;
+  isLoadingMore: boolean;
   unreadCount: number;
 }
 
@@ -21,203 +28,207 @@ interface UseWidgetMessagesOptions {
   conversationId: string | null;
   userId: string | null;
   canWrite: boolean;
+  widgetToken: string | null;
   limit?: number;
+  pollIntervalMs?: number;
 }
 
 export function useWidgetMessages({
   conversationId,
   userId,
   canWrite,
+  widgetToken,
   limit = 50,
+  pollIntervalMs = 3000,
 }: UseWidgetMessagesOptions): UseWidgetMessagesResult {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const offsetRef = useRef(0);
+  const isFocusedRef = useRef(true);
 
-  // Fetch messages
-  const fetchMessages = useCallback(async (before?: string) => {
-    if (!conversationId) return;
+  const authHeaders = useCallback((): Record<string, string> => {
+    return widgetToken ? { 'x-funchat-widget-token': widgetToken } : {};
+  }, [widgetToken]);
+
+  const unwrapOkData = useCallback(async (res: Response): Promise<unknown> => {
+    const json = (await res.json().catch(() => null)) as any;
+    if (!json || typeof json !== 'object') throw new Error('Bad response');
+
+    // Support nested envelope: { ok:true, data:{ ok:true, data:... } }
+    let cur: any = json;
+    for (let i = 0; i < 3; i++) {
+      if (cur && typeof cur === 'object' && typeof cur.ok === 'boolean') {
+        if (cur.ok === false) throw new Error(cur.error?.message || 'Request failed');
+        if ('data' in cur) {
+          cur = cur.data;
+          continue;
+        }
+      }
+      break;
+    }
+    return cur;
+  }, []);
+
+  const fetchPage = useCallback(async (offset: number): Promise<Message[]> => {
+    if (!conversationId || !widgetToken) return [];
+
+    const url = `${API_BASE_URL}/v1/conversations/${conversationId}/messages?limit=${encodeURIComponent(
+      limit
+    )}&offset=${encodeURIComponent(offset)}`;
+
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`HTTP_${res.status}`);
+
+    const data = await unwrapOkData(res);
+    const rows = Array.isArray(data) ? data : [];
+
+    // api-chat returns newest first; reverse for display.
+    return (rows as any[]).map((m) => ({
+      ...m,
+      message_type: (m.message_type || 'text') as Message['message_type'],
+    })) as Message[];
+  }, [conversationId, widgetToken, limit, unwrapOkData, authHeaders]);
+
+  const refresh = useCallback(async () => {
+    if (!conversationId || !widgetToken) return;
 
     setIsLoading(true);
     setError(null);
-
     try {
-      let query = supabase
-        .from('messages')
-        .select(`
-          *,
-          sender:profiles!messages_sender_id_fkey(id, username, display_name, avatar_url)
-        `)
-        .eq('conversation_id', conversationId)
-        .eq('is_deleted', false)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-
-      if (before) {
-        query = query.lt('created_at', before);
-      }
-
-      const { data, error: fetchError } = await query;
-
-      if (fetchError) {
-        setError('Failed to load messages');
-        return;
-      }
-
-      const formattedMessages: Message[] = (data || []).map(msg => ({
-        id: msg.id,
-        conversation_id: msg.conversation_id,
-        sender_id: msg.sender_id,
-        content: msg.content,
-        message_type: msg.message_type as Message['message_type'],
-        metadata: msg.metadata as Message['metadata'],
-        reply_to_id: msg.reply_to_id,
-        created_at: msg.created_at,
-        updated_at: msg.updated_at,
-        is_deleted: msg.is_deleted,
-        deleted_at: msg.deleted_at,
-        sender: msg.sender as any,
-      })).reverse();
-
-      if (before) {
-        setMessages(prev => [...formattedMessages, ...prev]);
-      } else {
-        setMessages(formattedMessages);
-      }
-
-      setHasMore((data || []).length === limit);
-    } catch {
+      offsetRef.current = 0;
+      const rows = await fetchPage(0);
+      const list = [...rows].reverse();
+      setMessages(list);
+      setHasMore(rows.length === limit);
+      setUnreadCount(0);
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('[useWidgetMessages] refresh error', e);
       setError('Failed to load messages');
+      setMessages([]);
     } finally {
       setIsLoading(false);
     }
-  }, [conversationId, limit]);
+  }, [conversationId, widgetToken, fetchPage, limit]);
 
   // Send message
   const sendMessage = useCallback(async (content: string): Promise<boolean> => {
-    if (!conversationId || !userId || !canWrite || !content.trim()) {
+    if (!conversationId || !userId || !widgetToken || !canWrite || !content.trim()) {
       return false;
     }
 
     try {
-      const { error: sendError } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: conversationId,
-          sender_id: userId,
+      const res = await fetch(`${API_BASE_URL}/v1/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
+        body: JSON.stringify({
           content: content.trim(),
           message_type: 'text',
-        });
-
-      if (sendError) {
-        setError('Failed to send message');
-        return false;
-      }
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP_${res.status}`);
+      await unwrapOkData(res);
 
       return true;
     } catch {
       setError('Failed to send message');
       return false;
     }
-  }, [conversationId, userId, canWrite]);
+  }, [conversationId, userId, canWrite, widgetToken, authHeaders, unwrapOkData]);
 
   // Load more
   const loadMore = useCallback(async () => {
-    if (!hasMore || isLoading || messages.length === 0) return;
-    const oldestMessage = messages[0];
-    if (oldestMessage?.created_at) {
-      await fetchMessages(oldestMessage.created_at);
+    if (!conversationId || !widgetToken) return;
+    if (!hasMore || isLoading || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const nextOffset = offsetRef.current + limit;
+      const rows = await fetchPage(nextOffset);
+      offsetRef.current = nextOffset;
+      setHasMore(rows.length === limit);
+      const page = [...rows].reverse();
+      setMessages(prev => [...page, ...prev]);
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('[useWidgetMessages] loadMore error', e);
+    } finally {
+      setIsLoadingMore(false);
     }
-  }, [hasMore, isLoading, messages, fetchMessages]);
+  }, [conversationId, widgetToken, hasMore, isLoading, isLoadingMore, fetchPage, limit]);
 
   // Initial fetch
   useEffect(() => {
     if (conversationId) {
-      fetchMessages();
+      refresh();
     }
-  }, [conversationId, fetchMessages]);
+  }, [conversationId, refresh]);
 
-  // Real-time subscription
+  // Window focus tracking for unread count
   useEffect(() => {
-    if (!conversationId) return;
-
-    channelRef.current = supabase
-      .channel(`widget-messages-${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
-          // Fetch sender info
-          const { data: senderData } = await supabase
-            .from('profiles')
-            .select('id, username, display_name, avatar_url')
-            .eq('id', payload.new.sender_id)
-            .single();
-
-          const newMessage: Message = {
-            ...payload.new as any,
-            sender: senderData as any,
-          };
-
-          setMessages(prev => [...prev, newMessage]);
-
-          // Update unread if not from current user
-          if (payload.new.sender_id !== userId) {
-            setUnreadCount(prev => prev + 1);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          setMessages(prev =>
-            prev.map(msg =>
-              msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
-            )
-          );
-        }
-      )
-      .subscribe();
-
+    const onFocus = () => { isFocusedRef.current = true; setUnreadCount(0); };
+    const onBlur = () => { isFocusedRef.current = false; };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
     };
   }, [conversationId, userId]);
 
-  // Reset unread when component focused
-  const resetUnread = useCallback(() => {
-    setUnreadCount(0);
-  }, []);
-
+  // Polling for new messages (replaces Supabase Realtime)
   useEffect(() => {
-    const handleFocus = () => resetUnread();
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [resetUnread]);
+    if (!conversationId || !widgetToken) return;
+    if (pollIntervalMs <= 0) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      if (document.visibilityState === 'hidden') return;
+
+      try {
+        const rows = await fetchPage(0);
+        const latest = [...rows].reverse();
+
+        setMessages(prev => {
+          const prevIds = new Set(prev.map(m => m.id));
+          const appended = latest.filter(m => !prevIds.has(m.id));
+          if (appended.length === 0) return prev;
+
+          // Unread count for messages from others while not focused.
+          if (!isFocusedRef.current) {
+            const unread = appended.filter(m => (m as any).sender_id && (m as any).sender_id !== userId).length;
+            if (unread > 0) setUnreadCount(c => c + unread);
+          }
+
+          return [...prev, ...appended];
+        });
+      } catch (e) {
+        if (import.meta.env.DEV) console.error('[useWidgetMessages] poll error', e);
+      }
+    };
+
+    const interval = window.setInterval(() => { void tick(); }, pollIntervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [conversationId, widgetToken, pollIntervalMs, fetchPage, userId]);
 
   return {
     messages,
     isLoading,
     error,
     sendMessage,
+    refresh,
     loadMore,
     hasMore,
+    isLoadingMore,
     unreadCount,
   };
 }

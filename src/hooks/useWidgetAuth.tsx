@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { API_BASE_URL } from '@/config/workerUrls';
 
 export interface WidgetAuthContext {
   isValid: boolean;
@@ -22,6 +22,23 @@ export interface UseWidgetAuthResult extends WidgetAuthContext {
   refreshToken: () => Promise<string | null>;
   hasScope: (scope: string) => boolean;
 }
+
+type ValidateOk = {
+  ok: true;
+  data: {
+    valid: true;
+    user_id: string;
+    app_id: string;
+    conversation_id: string | null;
+    scopes: string[];
+    expires_at: string;
+  };
+};
+
+type ValidateErr = {
+  ok: false;
+  error?: { message?: string };
+};
 
 export function useWidgetAuth(initialToken?: string): UseWidgetAuthResult {
   const [authContext, setAuthContext] = useState<WidgetAuthContext>({
@@ -41,16 +58,18 @@ export function useWidgetAuth(initialToken?: string): UseWidgetAuthResult {
     setAuthContext(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const { data, error } = await supabase.functions.invoke('widget-token', {
+      const res = await fetch(`${API_BASE_URL}/v1/widget/token/validate`, {
         method: 'POST',
-        body: { action: 'validate', token },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
       });
+      const json = (await res.json().catch(() => null)) as (ValidateOk | ValidateErr | null);
 
-      if (error || !data?.valid) {
+      if (!json || (json as ValidateOk).ok !== true || !(json as ValidateOk).data?.valid) {
         setAuthContext({
           isValid: false,
           isLoading: false,
-          error: data?.error || 'Invalid token',
+          error: (json as ValidateErr | null)?.error?.message || 'Invalid token',
           userId: null,
           appId: null,
           conversationId: null,
@@ -65,14 +84,15 @@ export function useWidgetAuth(initialToken?: string): UseWidgetAuthResult {
         isValid: true,
         isLoading: false,
         error: null,
-        userId: data.user_id,
-        appId: data.app_id,
-        conversationId: data.conversation_id,
-        scopes: data.scopes || [],
-        expiresAt: data.expires_at,
+        userId: (json as ValidateOk).data.user_id,
+        appId: (json as ValidateOk).data.app_id,
+        conversationId: (json as ValidateOk).data.conversation_id,
+        scopes: (json as ValidateOk).data.scopes || [],
+        expiresAt: (json as ValidateOk).data.expires_at,
       });
       return true;
     } catch (err) {
+      if (import.meta.env.DEV) console.error('[useWidgetAuth] validateToken error:', err);
       setAuthContext({
         isValid: false,
         isLoading: false,
@@ -90,26 +110,11 @@ export function useWidgetAuth(initialToken?: string): UseWidgetAuthResult {
   const refreshToken = useCallback(async (): Promise<string | null> => {
     if (!currentToken) return null;
 
-    try {
-      const { data, error } = await supabase.functions.invoke('widget-token', {
-        method: 'POST',
-        body: { action: 'refresh', token: currentToken },
-      });
-
-      if (error || !data?.token) {
-        return null;
-      }
-
-      setCurrentToken(data.token);
-      setAuthContext(prev => ({
-        ...prev,
-        expiresAt: data.expires_at,
-      }));
-      return data.token;
-    } catch {
-      return null;
-    }
-  }, [currentToken]);
+    // The current backend doesn't provide a refresh flow for widget tokens.
+    // Best-effort: re-validate; if still valid, keep using the same token.
+    const ok = await validateToken(currentToken);
+    return ok ? currentToken : null;
+  }, [currentToken, validateToken]);
 
   const hasScope = useCallback((scope: string): boolean => {
     return authContext.scopes.includes(scope);

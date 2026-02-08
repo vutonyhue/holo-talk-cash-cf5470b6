@@ -4,13 +4,13 @@
  */
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useWidgetAuth } from '@/hooks/useWidgetAuth';
 import { useWidgetMessages } from '@/hooks/useWidgetMessages';
 import { WidgetHeader } from './WidgetHeader';
 import { WidgetMessages } from './WidgetMessages';
 import { WidgetInput } from './WidgetInput';
 import { Loader2, AlertCircle } from 'lucide-react';
+import { API_BASE_URL } from '@/config/workerUrls';
 
 interface WidgetChatProps {
   token: string;
@@ -43,6 +43,7 @@ export function WidgetChat({ token, theme = 'auto' }: WidgetChatProps) {
     conversationId: auth.conversationId,
     userId: auth.userId,
     canWrite,
+    widgetToken: token,
   });
 
   // Apply theme
@@ -61,20 +62,24 @@ export function WidgetChat({ token, theme = 'auto' }: WidgetChatProps) {
 
     const fetchConversation = async () => {
       setConversationLoading(true);
-      const { data } = await supabase
-        .from('conversations')
-        .select('id, name, avatar_url, is_group')
-        .eq('id', auth.conversationId)
-        .single();
-
-      if (data) {
-        setConversation(data);
+      try {
+        const res = await fetch(`${API_BASE_URL}/v1/conversations/${auth.conversationId}`, {
+          headers: { 'x-funchat-widget-token': token },
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (res.ok && json?.ok === true && json.data) {
+          setConversation(json.data as ConversationInfo);
+        } else {
+          setConversation(null);
+        }
+      } catch {
+        setConversation(null);
       }
       setConversationLoading(false);
     };
 
     fetchConversation();
-  }, [auth.conversationId]);
+  }, [auth.conversationId, token]);
 
   // Notify parent of ready state
   useEffect(() => {
