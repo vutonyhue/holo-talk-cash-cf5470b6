@@ -935,6 +935,9 @@ async function handleUserRoute(
     targetPath = targetPath.replace('/v1/read-receipts', '/api-chat/read-receipts');
   } else if (targetPath.startsWith('/v1/media')) {
     targetPath = targetPath.replace('/v1/media', '/api-chat/media');
+  } else if (targetPath.startsWith('/v1/rewards/auto-check')) {
+    // Forward to the dedicated Edge Function (not the /api-rewards router).
+    targetPath = targetPath.replace('/v1/rewards/auto-check', '/check-eligibility');
   } else if (targetPath.startsWith('/v1/rewards')) {
     targetPath = targetPath.replace('/v1/rewards', '/api-rewards');
   } else if (targetPath.startsWith('/v1/ai')) {

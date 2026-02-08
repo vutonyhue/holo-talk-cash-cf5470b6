@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 
@@ -46,7 +45,7 @@ export interface ClaimResult {
 }
 
 export function useRewards() {
-  const { user, session } = useAuth();
+  const { user } = useAuth();
   const [tasks, setTasks] = useState<RewardTask[]>([]);
   const [userRewards, setUserRewards] = useState<UserReward[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,31 +69,27 @@ export function useRewards() {
         setUserRewards(rewardsRes.data as UserReward[]);
       }
     } catch (error) {
-      console.error('[useRewards] Fetch error:', error);
+      if (import.meta.env.DEV) console.error('[useRewards] Fetch error:', error);
     }
   }, [user]);
 
   // Check eligibility for auto-completable tasks
   const checkEligibility = useCallback(async () => {
-    if (!session?.access_token) return;
+    if (!user) return;
 
     try {
-      // Still use Supabase functions for this as it's a special operation
-      await supabase.functions.invoke('check-eligibility', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`
-        }
-      });
+      // Trigger server-side eligibility upserts via API Gateway (forwarded to Edge Function)
+      await api.rewards.autoCheckEligibility();
       // Refresh data after checking eligibility
       await fetchData();
     } catch (error) {
-      console.error('[useRewards] Error checking eligibility:', error);
+      if (import.meta.env.DEV) console.error('[useRewards] Error checking eligibility:', error);
     }
-  }, [session?.access_token, fetchData]);
+  }, [user, fetchData]);
 
   // Claim a reward via API
   const claimReward = useCallback(async (taskId: string): Promise<ClaimResult> => {
-    if (!session?.access_token) {
+    if (!user) {
       return { success: false, error: 'Not authenticated' };
     }
 
@@ -107,21 +102,27 @@ export function useRewards() {
         return { success: false, error: response.error?.message || 'Failed to claim reward' };
       }
 
+      // Optimistic local update (avoid UI flicker)
+      setUserRewards(prev =>
+        prev.map(r => (r.task_id === taskId ? { ...r, status: 'claimed', claimed_at: new Date().toISOString() } : r))
+      );
+
       // Refresh data after successful claim
       await fetchData();
 
+      const task = tasks.find(t => t.id === taskId);
       return {
         success: true,
-        reward_amount: (response.data as any)?.reward_amount,
-        task_name: (response.data as any)?.task_name
+        reward_amount: task?.reward_amount,
+        task_name: task?.name_vi || task?.name_en
       };
     } catch (error: any) {
-      console.error('[useRewards] Claim error:', error);
+      if (import.meta.env.DEV) console.error('[useRewards] Claim error:', error);
       return { success: false, error: 'Failed to claim reward' };
     } finally {
       setClaiming(null);
     }
-  }, [session?.access_token, fetchData]);
+  }, [user, fetchData, tasks]);
 
   useEffect(() => {
     if (!user) {
@@ -140,25 +141,14 @@ export function useRewards() {
 
     init();
 
-    // Subscribe to realtime changes - KEEP SUPABASE REALTIME
-    const channel = supabase
-      .channel('user_rewards_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_rewards',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
+    // Poll for updates (avoid Supabase Realtime in frontend)
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      fetchData();
+    }, 15000);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.clearInterval(interval);
     };
   }, [user, fetchData, checkEligibility]);
 
