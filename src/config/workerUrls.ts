@@ -18,13 +18,13 @@ function getViteEnv(
   return value;
 }
 
-// Fallback URLs - update these if you have new worker URLs
+// Fallback URLs - updated with new worker URLs
 export const API_BASE_URL = getViteEnv(
   "VITE_API_BASE_URL",
-  "https://funchat-api-gateway.india-25d.workers.dev"
+  "https://funchat-api-gateway.lequangvu2210-hue.workers.dev"
 );
 
 export const AGORA_TOKEN_WORKER_URL = getViteEnv(
   "VITE_AGORA_TOKEN_WORKER_URL",
-  "https://agora-token-worker.india-25d.workers.dev"
+  "https://agora-token-worker.lequangvu2210-hue.workers.dev"
 );
