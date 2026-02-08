@@ -1,19 +1,30 @@
 // Centralized Cloudflare Worker URLs.
 //
-// We intentionally do not keep hard-coded workers.dev fallbacks here.
-// If these are missing, the app should fail fast instead of silently
-// calling the wrong worker (e.g. an old subdomain).
+// Uses fallback URLs if environment variables are missing,
+// allowing the app to run while logging warnings.
 
-function requireViteEnv(key: "VITE_API_BASE_URL" | "VITE_AGORA_TOKEN_WORKER_URL"): string {
+function getViteEnv(
+  key: "VITE_API_BASE_URL" | "VITE_AGORA_TOKEN_WORKER_URL",
+  fallback: string
+): string {
   const value = import.meta.env[key];
   if (!value) {
-    throw new Error(
-      `[config] Missing ${key}. Set it in root .env (local) or hosting env vars (prod).`
+    console.error(
+      `[config] ⚠️ Missing ${key}. Using fallback. ` +
+      `Set it in root .env (local) or hosting env vars (prod).`
     );
+    return fallback;
   }
   return value;
 }
 
-export const API_BASE_URL = requireViteEnv("VITE_API_BASE_URL");
-export const AGORA_TOKEN_WORKER_URL = requireViteEnv("VITE_AGORA_TOKEN_WORKER_URL");
+// Fallback URLs - update these if you have new worker URLs
+export const API_BASE_URL = getViteEnv(
+  "VITE_API_BASE_URL",
+  "https://funchat-api-gateway.india-25d.workers.dev"
+);
 
+export const AGORA_TOKEN_WORKER_URL = getViteEnv(
+  "VITE_AGORA_TOKEN_WORKER_URL",
+  "https://agora-token-worker.india-25d.workers.dev"
+);
