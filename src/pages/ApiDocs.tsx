@@ -12,34 +12,35 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ApiExplorer } from "@/components/api-docs/ApiExplorer";
+import { API_BASE_URL } from "@/config/workerUrls";
 
-const BASE_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1";
+const BASE_URL = API_BASE_URL;
 
 const endpoints = {
   chat: [
-    { method: "GET", path: "/api-chat/conversations", description: "List all conversations" },
-    { method: "GET", path: "/api-chat/conversations/:id", description: "Get a specific conversation" },
-    { method: "POST", path: "/api-chat/conversations", description: "Create a new conversation" },
-    { method: "GET", path: "/api-chat/conversations/:id/messages", description: "Get messages in a conversation" },
-    { method: "POST", path: "/api-chat/conversations/:id/messages", description: "Send a message" },
-    { method: "DELETE", path: "/api-chat/messages/:id", description: "Delete a message" },
+    { method: "GET", path: "/v1/conversations", description: "List all conversations" },
+    { method: "GET", path: "/v1/conversations/:id", description: "Get a specific conversation" },
+    { method: "POST", path: "/v1/conversations", description: "Create a new conversation" },
+    { method: "GET", path: "/v1/conversations/:id/messages", description: "Get messages in a conversation" },
+    { method: "POST", path: "/v1/conversations/:id/messages", description: "Send a message" },
+    { method: "DELETE", path: "/v1/messages/:id", description: "Delete a message" },
   ],
   users: [
-    { method: "GET", path: "/api-users/me", description: "Get your profile" },
-    { method: "PUT", path: "/api-users/me", description: "Update your profile" },
-    { method: "GET", path: "/api-users/search?q={query}", description: "Search for users" },
-    { method: "GET", path: "/api-users/:id", description: "Get a user's public profile" },
+    { method: "GET", path: "/v1/me", description: "Get your profile" },
+    { method: "PUT", path: "/v1/me", description: "Update your profile" },
+    { method: "GET", path: "/v1/users/search?q={query}", description: "Search for users" },
+    { method: "GET", path: "/v1/users/:id", description: "Get a user's public profile" },
   ],
   calls: [
-    { method: "POST", path: "/api-calls/initiate", description: "Initiate a call" },
-    { method: "PUT", path: "/api-calls/:id/status", description: "Update call status" },
-    { method: "GET", path: "/api-calls/history", description: "Get call history" },
-    { method: "GET", path: "/api-calls/:id", description: "Get call details" },
+    { method: "POST", path: "/v1/calls", description: "Start a call" },
+    { method: "PATCH", path: "/v1/calls/:id", description: "Update call status" },
+    { method: "GET", path: "/v1/calls/history", description: "Get call history" },
+    { method: "GET", path: "/v1/calls/:id", description: "Get call details" },
   ],
   crypto: [
-    { method: "POST", path: "/api-crypto/transfer", description: "Create a crypto transfer" },
-    { method: "GET", path: "/api-crypto/history", description: "Get transaction history" },
-    { method: "GET", path: "/api-crypto/stats", description: "Get transaction statistics" },
+    { method: "POST", path: "/v1/crypto/transfer", description: "Create a crypto transfer" },
+    { method: "GET", path: "/v1/crypto/history", description: "Get transaction history" },
+    { method: "GET", path: "/v1/crypto/stats", description: "Get transaction statistics" },
   ],
 };
 
@@ -51,10 +52,10 @@ const BASE_URL = '${BASE_URL}';
 
 // Get all conversations
 async function getConversations() {
-  const response = await fetch(\`\${BASE_URL}/api-chat/conversations\`, {
+  const response = await fetch(\`\${BASE_URL}/v1/conversations\`, {
     method: 'GET',
     headers: {
-      'Authorization': \`Bearer \${API_KEY}\`,
+      'x-funchat-api-key': API_KEY,
       'Content-Type': 'application/json'
     }
   });
@@ -67,11 +68,11 @@ async function getConversations() {
 // Send a message
 async function sendMessage(conversationId, content) {
   const response = await fetch(
-    \`\${BASE_URL}/api-chat/conversations/\${conversationId}/messages\`,
+    \`\${BASE_URL}/v1/conversations/\${conversationId}/messages\`,
     {
       method: 'POST',
       headers: {
-        'Authorization': \`Bearer \${API_KEY}\`,
+        'x-funchat-api-key': API_KEY,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ content })
@@ -84,10 +85,10 @@ async function sendMessage(conversationId, content) {
 // Search users
 async function searchUsers(query) {
   const response = await fetch(
-    \`\${BASE_URL}/api-users/search?q=\${encodeURIComponent(query)}\`,
+    \`\${BASE_URL}/v1/users/search?q=\${encodeURIComponent(query)}\`,
     {
       headers: {
-        'Authorization': \`Bearer \${API_KEY}\`
+        'x-funchat-api-key': API_KEY
       }
     }
   );
@@ -101,14 +102,14 @@ API_KEY = 'fc_live_your_api_key_here'
 BASE_URL = '${BASE_URL}'
 
 headers = {
-    'Authorization': f'Bearer {API_KEY}',
+    'x-funchat-api-key': API_KEY,
     'Content-Type': 'application/json'
 }
 
 # Get all conversations
 def get_conversations():
     response = requests.get(
-        f'{BASE_URL}/api-chat/conversations',
+        f'{BASE_URL}/v1/conversations',
         headers=headers
     )
     return response.json()
@@ -116,7 +117,7 @@ def get_conversations():
 # Send a message
 def send_message(conversation_id, content):
     response = requests.post(
-        f'{BASE_URL}/api-chat/conversations/{conversation_id}/messages',
+        f'{BASE_URL}/v1/conversations/{conversation_id}/messages',
         headers=headers,
         json={'content': content}
     )
@@ -125,7 +126,7 @@ def send_message(conversation_id, content):
 # Search users
 def search_users(query):
     response = requests.get(
-        f'{BASE_URL}/api-users/search',
+        f'{BASE_URL}/v1/users/search',
         headers=headers,
         params={'q': query}
     )
@@ -137,27 +138,27 @@ if __name__ == '__main__':
     print(conversations)`,
 
   curl: `# Get all conversations
-curl -X GET '${BASE_URL}/api-chat/conversations' \\
-  -H 'Authorization: Bearer fc_live_your_api_key_here' \\
+curl -X GET '${BASE_URL}/v1/conversations' \\
+  -H 'x-funchat-api-key: fc_live_your_api_key_here' \\
   -H 'Content-Type: application/json'
 
 # Send a message
-curl -X POST '${BASE_URL}/api-chat/conversations/{conversation_id}/messages' \\
-  -H 'Authorization: Bearer fc_live_your_api_key_here' \\
+curl -X POST '${BASE_URL}/v1/conversations/{conversation_id}/messages' \\
+  -H 'x-funchat-api-key: fc_live_your_api_key_here' \\
   -H 'Content-Type: application/json' \\
   -d '{"content": "Hello from the API!"}'
 
 # Search users
-curl -X GET '${BASE_URL}/api-users/search?q=john' \\
-  -H 'Authorization: Bearer fc_live_your_api_key_here'
+curl -X GET '${BASE_URL}/v1/users/search?q=john' \\
+  -H 'x-funchat-api-key: fc_live_your_api_key_here'
 
 # Get your profile
-curl -X GET '${BASE_URL}/api-users/me' \\
-  -H 'Authorization: Bearer fc_live_your_api_key_here'
+curl -X GET '${BASE_URL}/v1/me' \\
+  -H 'x-funchat-api-key: fc_live_your_api_key_here'
 
 # Create a crypto transfer
-curl -X POST '${BASE_URL}/api-crypto/transfer' \\
-  -H 'Authorization: Bearer fc_live_your_api_key_here' \\
+curl -X POST '${BASE_URL}/v1/crypto/transfer' \\
+  -H 'x-funchat-api-key: fc_live_your_api_key_here' \\
   -H 'Content-Type: application/json' \\
   -d '{"to_user_id": "user-uuid", "amount": 10, "currency": "CAMLY"}'`,
 
@@ -175,8 +176,8 @@ function useFunChat() {
   const fetchConversations = async () => {
     setLoading(true);
     try {
-      const res = await fetch(\`\${BASE_URL}/api-chat/conversations\`, {
-        headers: { 'Authorization': \`Bearer \${API_KEY}\` }
+      const res = await fetch(\`\${BASE_URL}/v1/conversations\`, {
+        headers: { 'x-funchat-api-key': API_KEY }
       });
       const data = await res.json();
       if (data.success) {
@@ -191,11 +192,11 @@ function useFunChat() {
 
   const sendMessage = async (conversationId, content) => {
     const res = await fetch(
-      \`\${BASE_URL}/api-chat/conversations/\${conversationId}/messages\`,
+      \`\${BASE_URL}/v1/conversations/\${conversationId}/messages\`,
       {
         method: 'POST',
         headers: {
-          'Authorization': \`Bearer \${API_KEY}\`,
+          'x-funchat-api-key': API_KEY,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ content })
@@ -421,7 +422,7 @@ export default function ApiDocs() {
                   <div className="space-y-2">
                     <h4 className="font-medium">Authorization Header</h4>
                     <div className="bg-muted p-4 rounded-lg font-mono text-sm">
-                      Authorization: Bearer fc_live_your_api_key_here
+                      x-funchat-api-key: fc_live_your_api_key_here
                     </div>
                   </div>
                 </CardContent>
@@ -553,7 +554,7 @@ export default function ApiDocs() {
                   <div className="space-y-3">
                     <h4 className="font-medium">API Key Authentication</h4>
                     <p className="text-sm text-muted-foreground">
-                      All API requests must include a valid API key in the Authorization header. 
+                      All API requests must include a valid API key in the <code className="bg-muted px-1 rounded">x-funchat-api-key</code> header. 
                       API keys start with <code className="bg-muted px-1 rounded">fc_live_</code> for production 
                       or <code className="bg-muted px-1 rounded">fc_test_</code> for testing.
                     </p>
@@ -561,7 +562,7 @@ export default function ApiDocs() {
                       <pre className="text-sm overflow-x-auto">
 {`// Include in every request
 headers: {
-  'Authorization': 'Bearer fc_live_your_api_key_here',
+  'x-funchat-api-key': 'fc_live_your_api_key_here',
   'Content-Type': 'application/json'
 }`}
                       </pre>
