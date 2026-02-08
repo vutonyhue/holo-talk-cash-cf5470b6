@@ -170,7 +170,16 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Create client with Service Role Key - ensure RLS is bypassed
+    // IMPORTANT: persistSession=false and autoRefreshToken=false to avoid JWT context
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
 
     // Validate authentication (dual mode)
     const auth = validateAuth(req);
@@ -182,6 +191,9 @@ serve(async (req) => {
     const url = new URL(req.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
     const ipAddress = req.headers.get('x-forwarded-for') || 'unknown';
+    
+    // Debug logging for conversation queries
+    console.log('[api-chat] Request:', req.method, url.pathname, '| userId:', userId, '| authMode:', auth.mode);
 
     // ========================================================================
     // CONVERSATIONS
@@ -292,17 +304,25 @@ serve(async (req) => {
       }
 
       // List all conversations with last message
-      const { data: memberData } = await supabase
+      console.log('[api-chat] Fetching conversations for userId:', userId);
+      
+      const { data: memberData, error: memberError } = await supabase
         .from('conversation_members')
         .select('conversation_id')
         .eq('user_id', userId);
+      
+      // Debug logging
+      console.log('[api-chat] memberData count:', memberData?.length ?? 0, '| error:', memberError?.message ?? 'none');
 
       const conversationIds = memberData?.map((m: any) => m.conversation_id) || [];
 
       if (conversationIds.length === 0) {
+        console.log('[api-chat] No conversations found for user');
         await logUsage(supabase, auth, '/conversations', 'GET', 200, Date.now() - startTime, ipAddress);
         return successResponse({ conversations: [], total: 0 });
       }
+      
+      console.log('[api-chat] Found', conversationIds.length, 'conversations');
 
       const { data, error } = await supabase
         .from('conversations')
