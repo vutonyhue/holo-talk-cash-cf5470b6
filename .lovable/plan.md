@@ -1,102 +1,309 @@
 
 
-# Tính năng Typing Indicator - Đánh giá và Cải tiến
+# Hướng dẫn Deploy Cloudflare Workers từ đầu
 
-## Hiện trạng: Đã hoàn thành 95%
+## Tổng quan
 
-Sau khi kiểm tra kỹ code, typing indicator đã được implement **đầy đủ từ end-to-end**:
+Dự án FunChat có **2 Cloudflare Workers** riêng biệt:
 
-```text
-User gõ tin nhắn
-        │
-        ▼
-broadcastTyping() [throttle 2s]
-        │
-        ▼
-POST /v1/conversations/:id/typing
-        │
-        ▼
-Cloudflare Worker lưu vào KV (TYPING_STATE, TTL=4s)
-        │
-        ▼
-SSE Stream poll mỗi 1s
-        │
-        ▼
-event: typing → useSSE → setTypingUsersFromSSE → UI update
+| Worker | Mục đích | Thư mục |
+|--------|----------|---------|
+| **API Gateway** | Xác thực API keys, rate limiting, proxy requests đến Supabase Edge Functions | `cloudflare-worker/` |
+| **Agora Token Worker** | Generate RTC tokens cho video/voice calls | `agora-token-worker/` |
+
+---
+
+## Yêu cầu trước khi bắt đầu
+
+1. **Node.js 18+** - Cài đặt từ [nodejs.org](https://nodejs.org/)
+2. **Tài khoản Cloudflare** - Đăng ký miễn phí tại [dash.cloudflare.com](https://dash.cloudflare.com/sign-up)
+3. **Tài khoản Agora** - Đăng ký tại [console.agora.io](https://console.agora.io/) (cho video calls)
+
+---
+
+## PHẦN 1: Deploy API Gateway
+
+### Bước 1: Mở Terminal và vào thư mục
+
+```bash
+cd cloudflare-worker
 ```
 
-### Luồng hoạt động:
-1. User A gõ text → `onChange` gọi `broadcastTyping()` (throttle 2 giây)
-2. API `POST /v1/conversations/:id/typing` gửi lên Worker
-3. Worker lưu typing state vào KV với TTL 4 giây
-4. User B đang subscribe SSE stream, Worker poll KV mỗi 1 giây
-5. Worker gửi `event: typing` chứa danh sách người đang gõ
-6. Frontend nhận → hiển thị animated dots + tên người
+### Bước 2: Cài đặt dependencies
 
-### UI đã có (ChatWindow.tsx lines 583-600):
-- Animated bouncing dots
-- Hiển thị tên người đang gõ
-- Tự động clear sau 3 giây không có update
+```bash
+npm install
+```
+
+### Bước 3: Đăng nhập Cloudflare
+
+```bash
+npx wrangler login
+```
+- Trình duyệt sẽ mở trang đăng nhập Cloudflare
+- Đăng nhập và cho phép Wrangler truy cập
+
+### Bước 4: Tạo KV Namespaces (Lưu trữ cache)
+
+```bash
+# Tạo namespace cho cache API keys
+npx wrangler kv:namespace create API_KEY_CACHE
+
+# Tạo namespace cho rate limiting
+npx wrangler kv:namespace create RATE_LIMIT
+
+# Tạo namespace cho JWKS cache (xác thực JWT)
+npx wrangler kv:namespace create JWKS_CACHE
+
+# Tạo namespace cho typing state (đang gõ)
+npx wrangler kv:namespace create TYPING_STATE
+```
+
+**⚠️ QUAN TRỌNG**: Ghi lại các **ID** từ output của mỗi lệnh. Ví dụ:
+```
+⛅️ wrangler 3.22.4
+🌀 Creating namespace with title "funchat-api-gateway-API_KEY_CACHE"
+✨ Success!
+Add the following to your configuration file in your kv_namespaces array:
+{ binding = "API_KEY_CACHE", id = "abc123def456..." }
+```
+
+### Bước 5: Cập nhật wrangler.toml
+
+Mở file `wrangler.toml` và thay thế các ID:
+
+```toml
+[[kv_namespaces]]
+binding = "API_KEY_CACHE"
+id = "YOUR_API_KEY_CACHE_ID"  # ← Thay bằng ID bước 4
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "YOUR_RATE_LIMIT_ID"  # ← Thay bằng ID bước 4
+
+[[kv_namespaces]]
+binding = "JWKS_CACHE"
+id = "YOUR_JWKS_CACHE_ID"  # ← Thay bằng ID bước 4
+
+[[kv_namespaces]]
+binding = "TYPING_STATE"
+id = "YOUR_TYPING_STATE_ID"  # ← Thay bằng ID bước 4
+```
+
+### Bước 6: Cài đặt Secrets
+
+```bash
+# Cài đặt Supabase URL
+npx wrangler secret put SUPABASE_URL
+# Khi được hỏi, nhập: https://dgeadmmbkvcsgizsnbpi.supabase.co
+
+# Cài đặt Supabase Service Key
+npx wrangler secret put SUPABASE_SERVICE_KEY
+# Khi được hỏi, nhập service role key của con (lấy từ Supabase Dashboard → Settings → API)
+
+# Cài đặt JWT Secret (để xác thực user tokens)
+npx wrangler secret put SUPABASE_JWT_SECRET
+# Khi được hỏi, nhập JWT secret của con (lấy từ Supabase Dashboard → Settings → API → JWT Settings)
+```
+
+### Bước 7: Deploy Worker
+
+```bash
+npm run deploy
+```
+
+**Output thành công:**
+```
+Uploaded funchat-api-gateway (2.5 sec)
+Published funchat-api-gateway (1.2 sec)
+  https://funchat-api-gateway.YOUR-SUBDOMAIN.workers.dev
+```
+
+**Ghi lại URL này!** Đây là API Gateway URL của con.
+
+### Bước 8: Kiểm tra
+
+```bash
+# Health check
+curl https://funchat-api-gateway.YOUR-SUBDOMAIN.workers.dev/health
+```
 
 ---
 
-## Cải tiến đề xuất
+## PHẦN 2: Deploy Agora Token Worker
 
-Mặc dù tính năng đã hoạt động, có một số điểm có thể cải thiện UX:
+### Bước 1: Lấy Agora Credentials
 
-### 1. Thêm hiệu ứng smooth hơn cho typing indicator
+1. Đăng nhập [console.agora.io](https://console.agora.io/)
+2. Tạo Project mới hoặc chọn Project có sẵn
+3. Vào **Project Settings**:
+   - Copy **App ID**
+   - Enable **App Certificate** và copy **Primary Certificate**
 
-**Hiện tại**: Dots bounce animation
-**Cải tiến**: Thêm fade in/out transition để không bị giật khi người gõ ngừng/bắt đầu
+### Bước 2: Mở Terminal và vào thư mục
 
-### 2. Tối ưu vị trí hiển thị
+```bash
+cd agora-token-worker
+```
 
-**Hiện tại**: Typing indicator nằm cuối danh sách messages
-**Cải tiến**: 
-- Thêm subtle avatar của người đang gõ
-- Style giống "message bubble đang được gõ"
+### Bước 3: Cài đặt dependencies
 
-### 3. Hỗ trợ group chat tốt hơn
+```bash
+npm install
+```
 
-**Hiện tại**: Hiển thị "A, B, C đang nhập..."
-**Cải tiến**: 
-- Nếu > 3 người: "A, B và 2 người khác đang nhập..."
-- Hiển thị avatar stack cho group
+### Bước 4: Cài đặt Secrets
+
+```bash
+# Cài đặt Agora App ID
+npx wrangler secret put AGORA_APP_ID
+# Khi được hỏi, nhập App ID từ Agora Console
+
+# Cài đặt Agora App Certificate
+npx wrangler secret put AGORA_APP_CERTIFICATE
+# Khi được hỏi, nhập Primary Certificate từ Agora Console
+```
+
+### Bước 5: Deploy Worker
+
+```bash
+npm run deploy
+```
+
+**Output thành công:**
+```
+Uploaded agora-token-worker (1.8 sec)
+Published agora-token-worker (0.9 sec)
+  https://agora-token-worker.YOUR-SUBDOMAIN.workers.dev
+```
+
+**Ghi lại URL này!** Đây là Agora Token Worker URL của con.
+
+### Bước 6: Kiểm tra
+
+```bash
+# Health check
+curl https://agora-token-worker.YOUR-SUBDOMAIN.workers.dev/
+```
 
 ---
 
-## Tóm tắt các thay đổi đề xuất
+## PHẦN 3: Cập nhật Frontend để sử dụng Workers
 
-| File | Thay đổi | Mục đích |
-|------|----------|----------|
-| `ChatWindow.tsx` | Cải tiến UI typing indicator | UX đẹp hơn |
+Sau khi deploy xong, con cần cập nhật URLs trong frontend:
+
+### 3.1. Cập nhật API Gateway URL
+
+Thêm vào file `.env`:
+```
+VITE_API_BASE_URL=https://funchat-api-gateway.YOUR-SUBDOMAIN.workers.dev
+```
+
+**Hoặc** nếu không dùng env, URLs mặc định trong code hiện tại là:
+- `src/lib/api/index.ts` line 25
+- `src/realtime/useSSE.ts` line 18
+- `src/lib/api/modules/ai.ts` line 8
+
+### 3.2. Cập nhật Agora Token Worker URL
+
+File `src/hooks/useAgoraCall.tsx` line 11:
+```typescript
+const AGORA_TOKEN_WORKER_URL = 'https://agora-token-worker.YOUR-SUBDOMAIN.workers.dev';
+```
 
 ---
 
-## Chi tiết kỹ thuật
+## PHẦN 4: Các lệnh hữu ích
 
-### Cập nhật UI Typing Indicator (ChatWindow.tsx)
+### API Gateway
 
-Thay thế phần typing indicator hiện tại (lines 583-600) với:
+```bash
+cd cloudflare-worker
 
-1. Thêm transition animation khi appear/disappear
-2. Hiển thị avatar nhỏ của người đang gõ
-3. Format tên đẹp hơn cho group chat (> 3 người)
-4. Background style giống message bubble
+# Xem logs realtime
+npm run logs
+
+# Chạy local để test
+npm run dev
+
+# Xem danh sách API keys đã cache
+npm run kv:list
+
+# Xóa cache API keys
+npm run kv:clear-cache
+```
+
+### Agora Token Worker
+
+```bash
+cd agora-token-worker
+
+# Xem logs realtime
+npm run logs
+
+# Chạy local để test
+npm run dev
+
+# Test API
+npm run test
+```
 
 ---
 
-## Test Cases
+## Troubleshooting
 
-Sau khi cải tiến, cần verify:
+### Lỗi "wrangler: command not found"
 
-1. Mở 2 browser tabs, đăng nhập 2 tài khoản khác nhau
-2. User A mở conversation với User B
-3. User B bắt đầu gõ → User A thấy typing indicator
-4. User B ngừng gõ 3-4 giây → Typing indicator biến mất
-5. Cả 2 gõ cùng lúc trong group → Hiển thị cả 2 tên
+```bash
+npm install -g wrangler
+# Hoặc dùng npx wrangler thay cho wrangler
+```
 
-## Lưu ý
+### Lỗi "Not logged in"
 
-Tính năng **đã hoạt động** với implementation hiện tại. Các thay đổi đề xuất chỉ là **cải tiến UI/UX** để trải nghiệm tốt hơn, không phải fix bug.
+```bash
+npx wrangler login
+```
+
+### Lỗi "KV namespace not found"
+
+Kiểm tra lại các ID trong `wrangler.toml` có khớp với output từ bước tạo KV namespaces không.
+
+### Lỗi "Server configuration error" (Agora)
+
+Secrets chưa được set. Chạy lại:
+```bash
+npm run setup:secrets
+```
+
+### API Gateway trả về 500 errors
+
+1. Kiểm tra secrets đã được set đúng chưa:
+```bash
+npx wrangler secret list
+```
+
+2. Xem logs:
+```bash
+npm run logs
+```
+
+---
+
+## Tóm tắt URLs sau khi deploy
+
+| Service | URL Pattern |
+|---------|-------------|
+| API Gateway | `https://funchat-api-gateway.YOUR-SUBDOMAIN.workers.dev` |
+| Agora Token | `https://agora-token-worker.YOUR-SUBDOMAIN.workers.dev` |
+
+Thay `YOUR-SUBDOMAIN` bằng subdomain Cloudflare của con (thường là tên account).
+
+---
+
+## Chi phí
+
+- **Cloudflare Workers**: Free tier = 100,000 requests/ngày
+- **KV Storage**: Free tier = 100,000 reads/ngày, 1,000 writes/ngày
+- Đủ cho ứng dụng vừa và nhỏ!
 
