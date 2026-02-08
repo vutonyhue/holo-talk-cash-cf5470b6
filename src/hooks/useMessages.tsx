@@ -65,9 +65,12 @@ export function useMessages(conversationId: string | null, options?: UseMessages
         return;
       }
 
+      const raw = (response.data as any).messages ?? response.data;
+      const messageArray = Array.isArray(raw) ? raw : [];
+
       // Transform API response, attach reply_to references
       const messageMap = new Map<string, Message>();
-      response.data.messages.forEach(m => {
+      messageArray.forEach(m => {
         const msg = {
           ...m,
           sender: m.sender as Profile | undefined,
@@ -76,7 +79,7 @@ export function useMessages(conversationId: string | null, options?: UseMessages
       });
 
       // Attach reply_to references
-      const messagesWithReplies = response.data.messages.map(m => {
+      const messagesWithReplies = messageArray.map(m => {
         const msg = messageMap.get(m.id)!;
         if (m.reply_to_id && messageMap.has(m.reply_to_id)) {
           msg.reply_to = messageMap.get(m.reply_to_id);

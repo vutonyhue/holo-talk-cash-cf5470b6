@@ -31,14 +31,19 @@ export function createMessagesApi(client: ApiClient) {
     /**
      * List messages in a conversation
      */
-    async list(conversationId: string, params?: PaginationParams): Promise<ApiResponse<MessageListResponse>> {
+    async list(
+      conversationId: string,
+      params?: PaginationParams
+    ): Promise<ApiResponse<MessageResponse[] | MessageListResponse>> {
       const queryParams = new URLSearchParams();
       if (params?.limit) queryParams.set('limit', params.limit.toString());
       if (params?.offset) queryParams.set('offset', params.offset.toString());
       if (params?.cursor) queryParams.set('cursor', params.cursor);
       
       const query = queryParams.toString();
-      return client.get<MessageListResponse>(
+      // Some backend routes return raw arrays, others return wrapped { messages: [...] }.
+      // Callers should normalize defensively.
+      return client.get<MessageResponse[] | MessageListResponse>(
         `/v1/conversations/${conversationId}/messages${query ? `?${query}` : ''}`
       );
     },
