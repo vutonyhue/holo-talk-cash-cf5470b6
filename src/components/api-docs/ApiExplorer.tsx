@@ -10,10 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Play, Loader2, AlertCircle } from "lucide-react";
 import { ResponseViewer } from "./ResponseViewer";
 import { EndpointDetail, EndpointSchema } from "./EndpointDetail";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { api } from "@/lib/api";
+import { API_BASE_URL } from "@/config/workerUrls";
 
-const BASE_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1";
+const BASE_URL = API_BASE_URL;
 
 // Full endpoint schemas with parameters
 const endpointSchemas: EndpointSchema[] = [
@@ -238,7 +239,6 @@ interface ApiKey {
   id: string;
   name: string;
   key_prefix: string;
-  api_key: string;
 }
 
 export function ApiExplorer() {
@@ -246,6 +246,7 @@ export function ApiExplorer() {
   const [selectedEndpoint, setSelectedEndpoint] = useState<EndpointSchema | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [userApiKeys, setUserApiKeys] = useState<ApiKey[]>([]);
+  const [selectedKeyPrefix, setSelectedKeyPrefix] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, string>>({});
   const [body, setBody] = useState("");
   const [response, setResponse] = useState<{
@@ -265,14 +266,25 @@ export function ApiExplorer() {
   }, [user]);
 
   const fetchApiKeys = async () => {
-    const { data } = await supabase
-      .from("api_keys")
-      .select("id, name, key_prefix, key_hash")
-      .eq("is_active", true);
-    
-    if (data) {
-      // Map key_hash to api_key for backward compatibility
-      setUserApiKeys(data.map((k: any) => ({ ...k, api_key: k.key_hash })));
+    try {
+      const response = await api.apiKeys.list();
+      if (!response.ok || !response.data) {
+        setUserApiKeys([]);
+        return;
+      }
+      const keys = response.data.keys || [];
+      setUserApiKeys(
+        keys
+          .filter((k: any) => k?.is_active !== false)
+          .map((k: any) => ({
+            id: k.id,
+            name: k.name,
+            key_prefix: k.key_prefix,
+          }))
+      );
+    } catch (e) {
+      console.error("[ApiExplorer] fetchApiKeys error:", e);
+      setUserApiKeys([]);
     }
   };
 
@@ -292,7 +304,8 @@ export function ApiExplorer() {
   const handleApiKeySelect = (keyId: string) => {
     const key = userApiKeys.find((k) => k.id === keyId);
     if (key) {
-      setApiKey(key.api_key);
+      // Secrets are never returned by the API after creation; user must paste it manually.
+      setSelectedKeyPrefix(key.key_prefix);
     }
   };
 
@@ -330,7 +343,8 @@ export function ApiExplorer() {
       const options: RequestInit = {
         method: selectedEndpoint.method,
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          // API Gateway expects FunChat API key in a dedicated header
+          "x-funchat-api-key": apiKey,
           "Content-Type": "application/json",
         },
       };
@@ -401,18 +415,31 @@ export function ApiExplorer() {
             <div className="space-y-2">
               <Label>API Key</Label>
               {userApiKeys.length > 0 ? (
-                <Select onValueChange={handleApiKeySelect}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select an API key" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {userApiKeys.map((key) => (
-                      <SelectItem key={key.id} value={key.id}>
-                        {key.name} ({key.key_prefix}...)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="space-y-2">
+                  <Select onValueChange={handleApiKeySelect}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select an API key (prefix only)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {userApiKeys.map((key) => (
+                        <SelectItem key={key.id} value={key.id}>
+                          {key.name} ({key.key_prefix}...)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder={
+                      selectedKeyPrefix
+                        ? `Paste your API key secret (starts with ${selectedKeyPrefix}...)`
+                        : "Paste your API key secret (fc_live_...)"
+                    }
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    type="password"
+                    className="font-mono"
+                  />
+                </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <Input
@@ -420,6 +447,7 @@ export function ApiExplorer() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     type="password"
+                    className="font-mono"
                   />
                   {!user && (
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
