@@ -60,19 +60,19 @@ name = "funchat-api-gateway-prod"
 
 [[env.production.kv_namespaces]]
 binding = "API_KEY_CACHE"
-id = "__API_KEY_CACHE_PROD_ID__"
+id = "bb49e1b278374c9b88e08effb703767c"
 
 [[env.production.kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "__RATE_LIMIT_PROD_ID__"
+id = "2703197501cb4e98bda9198eae339df7"
 
 [[env.production.kv_namespaces]]
 binding = "JWKS_CACHE"
-id = "__JWKS_CACHE_PROD_ID__"
+id = "ec84667c50ba4993b887c368e8b8e141"
 
 [[env.production.kv_namespaces]]
 binding = "TYPING_STATE"
-id = "__TYPING_STATE_PROD_ID__"
+id = "19b2739863a94d0190fb1add24ee8c04"
 
 [env.production.vars]
 SUPABASE_FUNCTIONS_URL = "https://dgeadmmbkvcsgizsnbpi.supabase.co/functions/v1"
