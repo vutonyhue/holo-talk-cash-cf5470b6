@@ -5,6 +5,7 @@ import { useConversations } from '@/hooks/useConversations';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useCallSignaling } from '@/hooks/useCallSignaling';
 import { api } from '@/lib/api';
+import type { Conversation } from '@/types';
 import AppSidebar from '@/components/layout/AppSidebar';
 import BottomNav from '@/components/layout/BottomNav';
 import ComingSoon from '@/components/layout/ComingSoon';
@@ -42,6 +43,10 @@ export default function Chat() {
   const [activeTab, setActiveTab] = useState<SidebarTab>('chat');
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat');
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  
+  // Fallback conversation state - dùng khi conversation chưa có trong list
+  const [fallbackConversation, setFallbackConversation] = useState<Conversation | null>(null);
+  const [fetchingFallback, setFetchingFallback] = useState(false);
 
   // DialPad state for calls panel
   const [showDialPad, setShowDialPad] = useState(false);
@@ -70,10 +75,81 @@ export default function Chat() {
     endCall,
   } = useCallSignaling();
 
-  // Derive selectedConversation from ID
-  const selectedConversation = selectedConversationId 
+  // Derive selectedConversation - ưu tiên từ list, fallback từ fetch trực tiếp
+  const conversationFromList = selectedConversationId 
     ? conversations.find(c => c.id === selectedConversationId) || null 
     : null;
+  const selectedConversation = conversationFromList || fallbackConversation;
+
+  // Fallback fetch: khi có selectedConversationId nhưng không tìm thấy trong list
+  useEffect(() => {
+    if (!selectedConversationId) {
+      setFallbackConversation(null);
+      return;
+    }
+    
+    // Nếu đã có trong list, không cần fallback
+    if (conversations.find(c => c.id === selectedConversationId)) {
+      setFallbackConversation(null);
+      return;
+    }
+    
+    // Fetch conversation by ID as fallback
+    let cancelled = false;
+    setFetchingFallback(true);
+    
+    api.conversations.get(selectedConversationId)
+      .then(response => {
+        if (cancelled) return;
+        if (response.ok && response.data) {
+          console.log('[Chat] Fallback fetch thành công:', response.data.id);
+          // Map ConversationResponse to Conversation type
+          const conv = response.data;
+          const mapped: Conversation = {
+            id: conv.id,
+            name: conv.name,
+            is_group: conv.is_group,
+            avatar_url: conv.avatar_url,
+            created_by: conv.created_by,
+            created_at: conv.created_at,
+            updated_at: conv.updated_at,
+            members: conv.members?.map(m => ({
+              id: m.id,
+              conversation_id: conv.id,
+              user_id: m.user_id,
+              role: m.role,
+              joined_at: m.joined_at,
+              profile: m.profile ? {
+                id: m.profile.id,
+                username: m.profile.username,
+                display_name: m.profile.display_name,
+                avatar_url: m.profile.avatar_url,
+                wallet_address: m.profile.wallet_address,
+                status: m.profile.status || 'offline',
+                last_seen: m.profile.last_seen || '',
+                created_at: m.profile.created_at || '',
+                updated_at: m.profile.updated_at || '',
+              } : undefined,
+            })),
+          };
+          setFallbackConversation(mapped);
+        } else {
+          console.error('[Chat] Fallback fetch thất bại:', response.error);
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          console.error('[Chat] Fallback fetch error:', err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFetchingFallback(false);
+        }
+      });
+    
+    return () => { cancelled = true; };
+  }, [selectedConversationId, conversations]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -285,6 +361,20 @@ export default function Chat() {
 
   // Render main view based on active tab
   const renderMainView = () => {
+    // Loading state khi đang fetch fallback conversation
+    if (selectedConversationId && !selectedConversation && fetchingFallback) {
+      return (
+        <div className="flex-1 flex items-center justify-center gradient-chat">
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center shadow-3d animate-float mx-auto mb-4">
+              <MessageCircle className="w-8 h-8 text-primary-foreground" />
+            </div>
+            <p className="text-muted-foreground">Đang tải cuộc trò chuyện...</p>
+          </div>
+        </div>
+      );
+    }
+
     // For AI tab, show AI chat window
     if (activeTab === 'ai') {
       return (
