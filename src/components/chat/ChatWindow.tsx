@@ -80,6 +80,9 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const { 
     messages, 
     loading, 
+    hasMore,
+    isLoadingMore,
+    loadMore,
     sendMessage, 
     sendCryptoMessage, 
     sendImageMessage, 
@@ -138,6 +141,8 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [initialScrollDone, setInitialScrollDone] = useState(false);
+  const isAtBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(false);
 
   // Extract all images from messages for lightbox navigation
   const allImages = useMemo<LightboxImage[]>(() => {
@@ -199,22 +204,69 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     setInitialScrollDone(false);
   }, [conversation.id]);
 
+  const getScrollViewport = useCallback((): HTMLDivElement | null => {
+    const root = scrollRef.current;
+    if (!root) return null;
+    return root.querySelector('[data-radix-scroll-area-viewport]') as HTMLDivElement | null;
+  }, []);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!hasMore || isLoadingMore || loading) return;
+    const viewport = getScrollViewport();
+    if (!viewport) return;
+
+    const prevScrollHeight = viewport.scrollHeight;
+    const prevScrollTop = viewport.scrollTop;
+
+    await loadMore();
+
+    // Restore scroll position after messages are prepended.
+    requestAnimationFrame(() => {
+      const newScrollHeight = viewport.scrollHeight;
+      viewport.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+    });
+  }, [hasMore, isLoadingMore, loading, getScrollViewport, loadMore]);
+
+  // Track whether the user is near the bottom; trigger load-more when scrolling to top.
+  useEffect(() => {
+    const viewport = getScrollViewport();
+    if (!viewport) return;
+
+    const onScroll = () => {
+      const distanceToBottom = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight);
+      isAtBottomRef.current = distanceToBottom < 120;
+
+      if (viewport.scrollTop < 40) {
+        void loadOlderMessages();
+      }
+    };
+
+    viewport.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => viewport.removeEventListener('scroll', onScroll);
+  }, [getScrollViewport, loadOlderMessages]);
+
   // Initial scroll when opening conversation (instant, no animation)
   useEffect(() => {
     if (!loading && messages.length > 0 && !initialScrollDone) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+      scrollToBottom('auto');
       setInitialScrollDone(true);
     }
-  }, [loading, messages.length, initialScrollDone]);
+  }, [loading, messages.length, initialScrollDone, scrollToBottom]);
 
   // Scroll on new messages (smooth animation)
   useEffect(() => {
-    if (initialScrollDone && messages.length > 0) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-    }
-  }, [messages.length, initialScrollDone]);
+    if (!initialScrollDone || messages.length === 0) return;
+    if (!forceScrollToBottomRef.current && !isAtBottomRef.current) return;
+
+    forceScrollToBottomRef.current = false;
+    const t = window.setTimeout(() => scrollToBottom('smooth'), 50);
+    return () => window.clearTimeout(t);
+  }, [messages.length, initialScrollDone, scrollToBottom]);
 
   // Mark messages as read when they are displayed (debounced)
   useEffect(() => {
@@ -235,6 +287,7 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
     const replyId = replyingTo?.id;
     setNewMessage('');
     setReplyingTo(null);
+    forceScrollToBottomRef.current = true;
     
     // Reset textarea height
     if (textareaRef.current) {
@@ -557,6 +610,11 @@ export default function ChatWindow({ conversation, conversations, onVideoCall, o
           </div>
         ) : (
           <div className="space-y-1">
+            {isLoadingMore && (
+              <div className="flex items-center justify-center py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
             {sortedMessages.map((message, index) => {
               const isLastFromSender = 
                 index === sortedMessages.length - 1 || 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { useSSE } from '@/realtime/useSSE';
 import { Message, Profile } from '@/types';
@@ -13,11 +13,19 @@ interface UseMessagesOptions {
   onReadReceipt?: (receipt: ReadReceiptEventData) => void;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 export function useMessages(conversationId: string | null, options?: UseMessagesOptions) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<Profile | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const offsetRef = useRef(0);
+  const PAGE_SIZE = 50;
 
   // Fetch current user profile for optimistic updates
   useEffect(() => {
@@ -32,7 +40,7 @@ export function useMessages(conversationId: string | null, options?: UseMessages
             username: response.data.username,
             display_name: response.data.display_name,
             avatar_url: response.data.avatar_url,
-            wallet_address: response.data.wallet_address,
+            wallet_address: (response.data as any).wallet_address ?? null,
             status: response.data.status || 'online',
             last_seen: response.data.last_seen || new Date().toISOString(),
             created_at: response.data.created_at || new Date().toISOString(),
@@ -40,64 +48,98 @@ export function useMessages(conversationId: string | null, options?: UseMessages
           });
         }
       } catch (error) {
-        console.error('Failed to fetch user profile:', error);
+        if (import.meta.env.DEV) console.error('Failed to fetch user profile:', error);
       }
     };
     
     fetchProfile();
   }, [user?.id]);
 
+  const normalizeMessageList = useCallback((data: unknown): any[] => {
+    const raw = isRecord(data) && 'messages' in data ? (data as any).messages : data;
+    return Array.isArray(raw) ? raw : [];
+  }, []);
+
+  const linkReplies = useCallback((list: Message[]): Message[] => {
+    const map = new Map(list.map(m => [m.id, m]));
+    return list.map(m => {
+      if (m.reply_to_id && map.has(m.reply_to_id)) {
+        return { ...m, reply_to: map.get(m.reply_to_id) };
+      }
+      return m;
+    });
+  }, []);
+
+  const fetchMessagesPage = useCallback(async (offset: number): Promise<Message[]> => {
+    if (!conversationId) return [];
+
+    const response = await api.messages.list(conversationId, { limit: PAGE_SIZE, offset });
+    if (!response.ok || !response.data) {
+      throw new Error(response.error?.message || 'Failed to fetch messages');
+    }
+
+    const rows = normalizeMessageList(response.data);
+
+    // Backend returns newest first; reverse for display.
+    const formatted: Message[] = rows.map((m: any) => ({
+      ...m,
+      sender: m.sender as Profile | undefined,
+    })) as Message[];
+
+    return formatted.reverse();
+  }, [conversationId, normalizeMessageList]);
+
   const fetchMessages = useCallback(async () => {
     if (!conversationId || !user) {
       setMessages([]);
       setLoading(false);
+      setHasMore(false);
+      offsetRef.current = 0;
       return;
     }
 
     setLoading(true);
 
     try {
-      const response = await api.messages.list(conversationId);
-
-      if (!response.ok || !response.data) {
-        console.error('[useMessages] Error fetching:', response.error);
-        setLoading(false);
-        return;
-      }
-
-      const raw = (response.data as any).messages ?? response.data;
-      const messageArray = Array.isArray(raw) ? raw : [];
-
-      // Transform API response, attach reply_to references
-      const messageMap = new Map<string, Message>();
-      messageArray.forEach(m => {
-        const msg = {
-          ...m,
-          sender: m.sender as Profile | undefined,
-        } as Message;
-        messageMap.set(m.id, msg);
-      });
-
-      // Attach reply_to references
-      const messagesWithReplies = messageArray.map(m => {
-        const msg = messageMap.get(m.id)!;
-        if (m.reply_to_id && messageMap.has(m.reply_to_id)) {
-          msg.reply_to = messageMap.get(m.reply_to_id);
-        }
-        return msg;
-      });
-
-      setMessages(messagesWithReplies);
+      offsetRef.current = 0;
+      const page = await fetchMessagesPage(0);
+      setHasMore(page.length === PAGE_SIZE);
+      setMessages(linkReplies(page));
     } catch (error) {
-      console.error('[useMessages] Fetch error:', error);
+      if (import.meta.env.DEV) console.error('[useMessages] Fetch error:', error);
+      setMessages([]);
     } finally {
       setLoading(false);
     }
-  }, [conversationId, user]);
+  }, [conversationId, user, fetchMessagesPage, linkReplies]);
 
   useEffect(() => {
     fetchMessages();
   }, [fetchMessages]);
+
+  const loadMore = useCallback(async () => {
+    if (!conversationId || !user) return;
+    if (loading || isLoadingMore || !hasMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const nextOffset = offsetRef.current + PAGE_SIZE;
+      const page = await fetchMessagesPage(nextOffset);
+      offsetRef.current = nextOffset;
+      setHasMore(page.length === PAGE_SIZE);
+
+      setMessages(prev => {
+        const merged = [...page, ...prev];
+        const deduped = Array.from(new Map(merged.map(m => [m.id, m])).values());
+        // Ensure reply_to is re-linked after merging pages.
+        return linkReplies(deduped);
+      });
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('[useMessages] loadMore error:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [conversationId, user, loading, isLoadingMore, hasMore, fetchMessagesPage, linkReplies]);
 
   // Handle incoming SSE messages
   const handleStreamMessage = useCallback((streamMessage: MessageEventData) => {
@@ -606,6 +648,9 @@ export function useMessages(conversationId: string | null, options?: UseMessages
   return {
     messages,
     loading,
+    hasMore,
+    isLoadingMore,
+    loadMore,
     sendMessage,
     sendCryptoMessage,
     sendImageMessage,
