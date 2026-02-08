@@ -15,6 +15,8 @@ const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+type Envelope = { ok: boolean; data?: unknown; error?: unknown; message?: unknown };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -27,6 +29,59 @@ function getApiErrorShape(value: unknown): Record<string, unknown> | null {
   if (!isRecord(value)) return null;
   const err = value['error'];
   return isRecord(err) ? err : null;
+}
+
+function isEnvelope(value: unknown): value is Envelope {
+  if (!isRecord(value)) return false;
+  if (!('ok' in value)) return false;
+  return typeof value.ok === 'boolean';
+}
+
+function unwrapEnvelope(
+  input: unknown,
+  maxDepth = 3
+): { ok: true; data: unknown } | { ok: false; error: unknown } {
+  let cur: unknown = input;
+
+  for (let i = 0; i < maxDepth; i++) {
+    if (!isEnvelope(cur)) return { ok: true, data: cur };
+
+    // HTTP 200 can still carry { ok: false, ... } as the body.
+    if (cur.ok === false) {
+      const errObj = isRecord(cur) ? cur : { message: 'Unknown error' };
+      const e = (errObj as { error?: unknown; message?: unknown }).error ?? (errObj as { message?: unknown }).message ?? errObj;
+      return { ok: false, error: e };
+    }
+
+    // ok === true:
+    // If it has a `data` key (even null), unwrap that. Otherwise, treat the envelope as payload.
+    const next = hasDataKey(cur) ? cur.data : cur;
+    cur = next;
+  }
+
+  // max depth reached; return current payload as-is (can be null or an inner envelope)
+  return { ok: true, data: cur };
+}
+
+function normalizeApiError(err: unknown, fallbackStatusText: string, status: number): ApiError {
+  if (typeof err === 'string') {
+    return { code: `HTTP_${status}`, message: err };
+  }
+
+  if (isRecord(err)) {
+    const code = typeof err.code === 'string' ? err.code : `HTTP_${status}`;
+    const message =
+      typeof err.message === 'string'
+        ? err.message
+        : typeof err.error === 'string'
+          ? err.error
+          : fallbackStatusText || `HTTP_${status}`;
+
+    const details = isRecord(err.details) ? (err.details as Record<string, unknown>) : undefined;
+    return { code, message, details };
+  }
+
+  return { code: `HTTP_${status}`, message: fallbackStatusText || `HTTP_${status}` };
 }
 
 class ApiClient {
@@ -102,6 +157,7 @@ class ApiClient {
           const responseData: unknown = await response.json().catch(() => ({}));
           const responseRecord: Record<string, unknown> = isRecord(responseData) ? responseData : {};
           const errorShape = getApiErrorShape(responseRecord);
+          const unwrapped = unwrapEnvelope(responseData);
 
           // Handle unauthorized
           if (response.status === 401) {
@@ -148,16 +204,30 @@ class ApiClient {
 
           // Handle successful response
           if (response.ok) {
+            if (unwrapped.ok === false) {
+              const error = normalizeApiError(unwrapped.error, response.statusText, response.status);
+              this.log('error', `Request failed: ${error.message}`, { requestId, error });
+              if (this.config.onError) this.config.onError(error);
+              return { ok: false, error, requestId };
+            }
+
             this.log('info', `Success ${method} ${path}`, { requestId });
-            const data = hasDataKey(responseRecord) ? responseRecord.data : responseData;
             return {
               ok: true,
-              data: data as T,
+              data: unwrapped.data as T,
               requestId,
             };
           }
 
           // Handle other errors
+          // Prefer envelope error if present.
+          if (unwrapped.ok === false) {
+            const error = normalizeApiError(unwrapped.error, response.statusText, response.status);
+            this.log('error', `Request failed: ${error.message}`, { requestId, error });
+            if (this.config.onError) this.config.onError(error);
+            return { ok: false, error, requestId };
+          }
+
           const error: ApiError = {
             code: (typeof errorShape?.code === 'string' && errorShape.code) || `HTTP_${response.status}`,
             message: (typeof errorShape?.message === 'string' && errorShape.message) || response.statusText,

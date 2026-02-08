@@ -87,8 +87,10 @@ export function useConversations() {
         console.log('[createConversation] Checking via API findDirectConversation...');
         const findResponse = await api.conversations.findDirectConversation(otherUserId);
         console.log('[createConversation] findDirectConversation response:', findResponse);
-        console.log('findResponse', findResponse);
-        console.log('findResponse.data', findResponse.data);
+        if (import.meta.env.DEV) {
+          console.log('findResponse', findResponse);
+          console.log('findResponse.data', findResponse.data);
+        }
 
         if (findResponse.ok && findResponse.data?.id) {
           await fetchConversations();

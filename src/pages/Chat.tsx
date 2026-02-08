@@ -113,8 +113,11 @@ export default function Chat() {
     console.log('[handleNewChat] Called:', { memberIds, name, isGroup });
     const result = await createConversation(memberIds, name, isGroup);
     console.log('[handleNewChat] Result:', result);
-    if (result.data) {
-      setSelectedConversationId(result.data.id);
+    const conversationId = result?.data?.id;
+    if (conversationId) {
+      setSelectedConversationId(conversationId);
+    } else {
+      toast.error('Khong the mo cuoc tro chuyen.');
     }
     return result; // Return result so NewChatDialog can check for errors
   };
@@ -192,8 +195,10 @@ export default function Chat() {
     try {
       // Use API to find or create conversation
       const findResponse = await api.conversations.findDirectConversation(foundProfile.id);
-      console.log('findResponse', findResponse);
-      console.log('findResponse.data', findResponse.data);
+      if (import.meta.env.DEV) {
+        console.log('findResponse', findResponse);
+        console.log('findResponse.data', findResponse.data);
+      }
       
       let conversationId: string;
 
@@ -207,7 +212,7 @@ export default function Chat() {
           is_group: false,
         });
 
-        if (!createResponse.ok || !createResponse.data) {
+        if (!createResponse.ok || !createResponse.data?.id) {
           throw new Error(createResponse.error?.message || 'Failed to create conversation');
         }
 

@@ -18,7 +18,7 @@ import { Search, Users, Loader2, UsersRound, X, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface CreateConversationResult {
-  data?: any;
+  data?: { id: string } | null;
   error?: Error | null;
 }
 
@@ -40,6 +40,7 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
   const [selectedUsers, setSelectedUsers] = useState<Profile[]>([]);
   const [groupName, setGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const isBusy = loading || creatingGroup || creatingUserId !== null;
 
   useEffect(() => {
     if (open) {
@@ -80,8 +81,13 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
         toast.error('Không thể tạo cuộc trò chuyện. Vui lòng thử lại.');
         return;
       }
-      resetState();
-      onClose();
+      const conversationId = result?.data?.id;
+      if (conversationId) {
+        resetState();
+        onClose();
+      } else {
+        toast.error('Khong the tao cuoc tro chuyen. Vui long thu lai.');
+      }
     } catch (error) {
       console.error('[NewChatDialog] Error creating conversation:', error);
       toast.error('Có lỗi xảy ra. Vui lòng thử lại.');
@@ -109,12 +115,19 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
     if (selectedUsers.length < 2 || !groupName.trim()) return;
     
     setCreatingGroup(true);
-    const memberIds = selectedUsers.map(u => u.id);
-    await onCreate(memberIds, groupName.trim(), true);
-    setCreatingGroup(false);
-    
-    resetState();
-    onClose();
+    try {
+      const memberIds = selectedUsers.map(u => u.id);
+      const result = await onCreate(memberIds, groupName.trim(), true);
+      const conversationId = (result as CreateConversationResult | void)?.data?.id;
+      if (conversationId) {
+        resetState();
+        onClose();
+      } else {
+        toast.error('Khong the tao cuoc tro chuyen. Vui long thu lai.');
+      }
+    } finally {
+      setCreatingGroup(false);
+    }
   };
 
   const resetState = () => {
@@ -217,9 +230,9 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
                   <button
                     key={userItem.id}
                     onClick={() => mode === 'direct' ? handleDirectChat(userItem.id) : toggleUserSelection(userItem)}
-                    disabled={mode === 'direct' && creatingUserId !== null}
+                    disabled={isBusy}
                     className={`w-full py-3 px-2 flex items-center gap-3 transition-all hover:bg-muted/50 ${
-                      mode === 'direct' && creatingUserId !== null ? 'opacity-50 cursor-not-allowed' : ''
+                      isBusy ? 'opacity-50 cursor-not-allowed' : ''
                     } ${mode === 'group' && isUserSelected(userItem.id) ? 'bg-primary/5' : ''}`}
                   >
                     {mode === 'group' && (
@@ -262,7 +275,7 @@ export default function NewChatDialog({ open, onClose, onCreate }: NewChatDialog
                 </p>
                 <Button 
                   onClick={handleCreateGroup}
-                  disabled={selectedUsers.length < 2 || !groupName.trim() || creatingGroup}
+                  disabled={selectedUsers.length < 2 || !groupName.trim() || isBusy}
                   className="rounded-full"
                   size="sm"
                 >

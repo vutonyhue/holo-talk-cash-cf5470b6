@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ArrowLeft, MessageCircle, Loader2 } from 'lucide-react';
 import { Profile } from '@/types';
+import { toast } from 'sonner';
 
 export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>();
@@ -44,9 +45,13 @@ export default function UserProfile() {
     const { data, error } = await createConversation([userId]);
     setStartingChat(false);
 
-    if (!error && data) {
-      navigate('/chat', { state: { conversationId: data.id } });
+    const conversationId = data?.id;
+    if (!error && conversationId) {
+      navigate('/chat', { state: { conversationId } });
+      return;
     }
+
+    toast.error('Khong the bat dau chat. Vui long thu lai.');
   };
 
   if (loading) {
