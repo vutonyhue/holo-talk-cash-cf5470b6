@@ -6,7 +6,7 @@
 // Standard API Response format
 export interface ApiResponse<T = unknown> {
   ok: boolean;
-  data?: T;
+  data?: T | null;
   error?: ApiError;
   requestId?: string;
 }

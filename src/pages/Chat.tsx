@@ -192,10 +192,12 @@ export default function Chat() {
     try {
       // Use API to find or create conversation
       const findResponse = await api.conversations.findDirectConversation(foundProfile.id);
+      console.log('findResponse', findResponse);
+      console.log('findResponse.data', findResponse.data);
       
       let conversationId: string;
 
-      if (findResponse.ok && findResponse.data) {
+      if (findResponse.ok && findResponse.data?.id) {
         // Existing conversation found
         conversationId = findResponse.data.id;
       } else {

@@ -15,6 +15,20 @@ const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasDataKey(value: unknown): value is { data: unknown } {
+  return isRecord(value) && 'data' in value;
+}
+
+function getApiErrorShape(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const err = value['error'];
+  return isRecord(err) ? err : null;
+}
+
 class ApiClient {
   private config: ApiClientConfig;
 
@@ -85,7 +99,9 @@ class ApiClient {
           clearTimeout(timeoutId);
 
           // Parse response
-          const responseData = await response.json().catch(() => ({}));
+          const responseData: unknown = await response.json().catch(() => ({}));
+          const responseRecord: Record<string, unknown> = isRecord(responseData) ? responseData : {};
+          const errorShape = getApiErrorShape(responseRecord);
 
           // Handle unauthorized
           if (response.status === 401) {
@@ -97,7 +113,7 @@ class ApiClient {
               ok: false,
               error: {
                 code: 'UNAUTHORIZED',
-                message: responseData.error?.message || 'Unauthorized',
+                message: (typeof errorShape?.message === 'string' && errorShape.message) || 'Unauthorized',
               },
               requestId,
             };
@@ -133,18 +149,19 @@ class ApiClient {
           // Handle successful response
           if (response.ok) {
             this.log('info', `Success ${method} ${path}`, { requestId });
+            const data = hasDataKey(responseRecord) ? responseRecord.data : responseData;
             return {
               ok: true,
-              data: responseData.data ?? responseData,
+              data: data as T,
               requestId,
             };
           }
 
           // Handle other errors
           const error: ApiError = {
-            code: responseData.error?.code || `HTTP_${response.status}`,
-            message: responseData.error?.message || response.statusText,
-            details: responseData.error?.details,
+            code: (typeof errorShape?.code === 'string' && errorShape.code) || `HTTP_${response.status}`,
+            message: (typeof errorShape?.message === 'string' && errorShape.message) || response.statusText,
+            details: (isRecord(errorShape?.details) && (errorShape.details as Record<string, unknown>)) || undefined,
           };
 
           this.log('error', `Request failed: ${error.message}`, { requestId, error });
